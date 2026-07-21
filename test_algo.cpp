@@ -61,11 +61,10 @@ TEST_F(AlgoTest,DISABLED_calib)
 TEST_F(AlgoTest,ChannelProcess_Single)
 {
 	auto channel=DetectChannel::Narrow; 
-	int FrameWidth=1024,FrameHeight=274,TotalRings=10;
-	int RingWidth=FrameWidth,RingHeight=27400;
+	int FrameWidth=256,FrameHeight=274,TotalRings=10;
 	float PixelSize=10; // um/pixel
-	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{}, \"RingWidth\":{}, \"RingHeight\":{}, \"PixelSize\":{}}}",
-                                      FrameWidth, FrameHeight, TotalRings, RingWidth, RingHeight,PixelSize);
+	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"PixelSize\":{}}}",
+                                      FrameWidth, FrameHeight, TotalRings, PixelSize);
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json","classify_setting.json",
                                             "coord_cali_setting.json","DSizeCurve.json");
@@ -74,6 +73,8 @@ TEST_F(AlgoTest,ChannelProcess_Single)
 	for(int kr=0;kr<TotalRings;kr++)//index of ring
 	{
 		float theta0=kr*20.0f,theta1=theta0+360.0f; //triggered start and end angles in degrees
+		//int RingWidth=FrameWidth,RingHeight=27400;
+		int RingWidth=FrameWidth*(std::rand()%3+1),RingHeight=27400;
 		std::string coordCaliJson_ring = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggeredStart\":{{\"T\":{}}}, \"TriggeredEnd\":{{\"T\":{}}}}}", RingWidth, RingHeight, theta0,theta1);
 		auto res_beginring = BeginRingProcess(channel, kr, "process_setting.json",
                                       "haze_cali_setting.json", coordCaliJson_ring.c_str());
@@ -84,8 +85,8 @@ TEST_F(AlgoTest,ChannelProcess_Single)
 		for(int kf=0;kf<numFrames;kf++)//index of frame in ring kr
 		{ 
 			int I=static_cast<int>(kr*dI+kf*dIframe); //intensity for this frame
-			std::vector<uint8_t> frameData(FrameWidth * FrameHeight, static_cast<uint8_t>(I));
-			auto res_addblock=AddRingProcessFrame(channel,kr,frameData.data(),FrameWidth,FrameHeight,FrameHeight,0,1);
+			std::vector<uint8_t> frameData(RingWidth * FrameHeight, static_cast<uint8_t>(I));
+			auto res_addblock=AddRingProcessFrame(channel,kr,frameData.data(),RingWidth,FrameHeight,FrameHeight,0,1);
 			ASSERT_EQ(res_addblock.IsSuccess,true)<<"AddRingProcessFrame failed: "<<res_addblock.ErrorMessage;
 		}
 

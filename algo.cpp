@@ -332,20 +332,34 @@ extern "C"
 	{
 		(void)descriptor;
 		std::vector<Ring> rings_copy;
+		std::vector<int> ringWidths;
 		{
 			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 			for(const auto& r:rings[channelID])
 			{
 				rings_copy.push_back(r); 
 				rings_copy.back().img=r.img.clone(); // deep copy of the image
+				ringWidths.push_back(r.img.cols); // store the width of each ring image 
 			}
 		}
-		std::lock_guard <std::mutex> lock_settings(mtx_chsettings);
-		int W=2*chsettings[channelID]["ring"]["RingWidth"]*chsettings[channelID]["ring"]["TotalRings"];
+		std::vector<int> ringStart(ringWidths.size()),ringEnd(ringWidths.size());
+		{
+			int N=rings_copy.size();
+			ringStart[N-1]=ringWidths[N-1];
+			ringEnd[N-1]=0;
+			for(int i=N-2;i>=0;i--)
+			{
+				ringEnd[i] = ringStart[i+1];
+				ringStart[i]=ringEnd[i]+ringWidths[i];
+			} 
+		}
+
+		int W=2*std::accumulate(ringWidths.begin(),ringWidths.end(),0);
 		int H=W;
+		std::lock_guard <std::mutex> lock_settings(mtx_chsettings);
 		//float pixelSize=chsettings[channelID]["PixelSize"];
 		int N=chsettings[channelID]["ring"]["TotalRings"];
-		float Wr=chsettings[channelID]["ring"]["RingWidth"];
+		//float Wr=chsettings[channelID]["ring"]["RingWidth"];
 		cv::Mat mergedImage(H,W,CV_8UC1,cv::Scalar(0));
 		//Now we find the pixel value for each pixel in the mergedImage by mapping it to the corresponding ring image
 		//The first ring image corresponds to the outermost ring. In each ring image, the first column corresponds to the angle 0, and the last column corresponds to the angle 2*pi. The first row corresponds to the outer edge of the ring, and the last row corresponds to the inner edge of the ring.
@@ -357,10 +371,15 @@ extern "C"
 				float x=j-W/2.0f;
 				float y=H/2.0f-i;
 				float r=std::sqrt(x*x+y*y);
+				if(r>ringStart[0])
+					continue; // outside the outermost ring
 				float theta=std::atan2(y,x);
 				//float r_mm=r*pixelSize;
-				int idxr=N-1-std::floor(r/Wr); //index of the ring image
-				if(idxr<0||idxr>=N)
+				int idxr=0;
+				for(;idxr<N;idxr++)
+					if(ringEnd[idxr]<r&&r<ringStart[idxr])
+						break;
+				if(idxr==N)
 					continue;
 
 				const float theta0=rings_copy[idxr].theta0;
@@ -372,8 +391,8 @@ extern "C"
 				int cols=rings_copy[idxr].img.cols;
 
 				int row=static_cast<int>(((theta-theta0)/(theta1-theta0))*(rows-1));
-				float r_in_ring=r-(N-1-idxr)*Wr;
-				int col=static_cast<int>((r_in_ring/Wr)*(cols-1));
+				float r_in_ring=ringStart[idxr]-r;
+				int col=static_cast<int>((r_in_ring/ringWidths[idxr])*(cols-1));
 
 				row=std::clamp(row,0,rows-1);
 				col=std::clamp(col,0,cols-1);
