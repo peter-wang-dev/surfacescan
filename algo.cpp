@@ -1,5 +1,4 @@
 ﻿#include "algorithm.h"
-#include <cstring> 
 #include <opencv2/opencv.hpp>
 #include <nlohmann/json.hpp>
 import std;
@@ -15,7 +14,8 @@ std::map<DetectChannel, std::map<std::string, json>> chsettings;
 struct Ring
 {
 	int index;
-	cv::Mat img; // accumulated images for this ring
+	cv::Mat img; // accumulated images 
+	cv::Mat defectmap; // defect map 
 	int cursor=0; // current row index for adding new frames
 	float theta0,theta1; // starting angle for this ring
 	json processSetting, hazeCaliSetting, coordCaliSetting;
@@ -47,7 +47,7 @@ extern "C"
 	}
 	AlgoResult AddCenterCalculationImage(const unsigned char* imageData,double stageAngle)
 	{
-		(void)imageData; (void)stageAngle;
+		(void)stageAngle;
 		cv::Mat img(param_contour.ImageHeight,param_contour.ImageWidth,CV_8UC1,const_cast<unsigned char*>(imageData));
 		if(img.empty()||img.type()!=CV_8UC1) {
 			printf("EndCenterCalculation: invalid image\n");
@@ -68,11 +68,10 @@ extern "C"
 			std::vector<std::vector<cv::Point>> contours;
 			cv::findContours(imgb_inv,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE);
 
-			if(contours.empty()) {
+			if(contours.empty())
 				printf("AddCenterCalculationImage: no contours found\n");
-			}
-			else {
-				// select largest by area
+			else 
+			{ // select largest by area
 				double maxArea=0.0;
 				int maxIdx=-1;
 				for(size_t i=0; i<contours.size(); ++i) {
@@ -319,12 +318,19 @@ extern "C"
 	{
 		(void)isOverLoad; (void)isHazeOverload;
 		cv::Mat rimg;
-		{
+		{// lock scope for ring image processing
 			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 			rimg = rings[channelID][ringIndex].img.clone(); // or assign without clone if you prefer shared header
 		}
+		cv::Mat defectmap = rimg.clone(); // For demonstration, copy the ring image to defect map
+		{// Process the ring image to detect defects and populate the defect map
+			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
+			rings[channelID][ringIndex].defectmap=defectmap.clone(); // For demonstration, copy the ring image to defect map
+		}
 		auto fn=std::format("ch{}r{}.png",static_cast<int>(channelID),ringIndex);
 		cv::imwrite(fn,rimg);
+		auto fn_defect=std::format("ch{}r{}_defect.png",static_cast<int>(channelID),ringIndex);
+		cv::imwrite(fn_defect,defectmap);
 		return AlgoResult::Success();
 	}
 
@@ -338,13 +344,13 @@ extern "C"
 			for(const auto& r:rings[channelID])
 			{
 				rings_copy.push_back(r); 
-				rings_copy.back().img=r.img.clone(); // deep copy of the image
-				ringWidths.push_back(r.img.cols); // store the width of each ring image 
+				rings_copy.back().defectmap=r.defectmap.clone(); // deep copy of the defect map
+				ringWidths.push_back(r.defectmap.cols); // store the width of each ring image 
 			}
 		}
 		std::vector<int> ringStart(ringWidths.size()),ringEnd(ringWidths.size());
 		{
-			int N=rings_copy.size();
+			int N=static_cast<int>(rings_copy.size());
 			ringStart[N-1]=ringWidths[N-1];
 			ringEnd[N-1]=0;
 			for(int i=N-2;i>=0;i--)
@@ -387,8 +393,8 @@ extern "C"
 				while(theta<theta0)
 					theta+=2.0f*static_cast<float>(CV_PI);
 
-				int rows=rings_copy[idxr].img.rows;
-				int cols=rings_copy[idxr].img.cols;
+				int rows=rings_copy[idxr].defectmap.rows;
+				int cols=rings_copy[idxr].defectmap.cols;
 
 				int row=static_cast<int>(((theta-theta0)/(theta1-theta0))*(rows-1));
 				float r_in_ring=ringStart[idxr]-r;
@@ -397,10 +403,10 @@ extern "C"
 				row=std::clamp(row,0,rows-1);
 				col=std::clamp(col,0,cols-1);
 
-				mergedImage.at<uchar>(i,j)=rings_copy[idxr].img.at<uchar>(row,col);
+				mergedImage.at<uchar>(i,j)=rings_copy[idxr].defectmap.at<uchar>(row,col);
 			}
 		}
-		cv::imwrite(std::format("ch{}_merged.png",static_cast<int>(channelID)),mergedImage);
+		cv::imwrite(std::format("ch{}_defect.png",static_cast<int>(channelID)),mergedImage);
 		return AlgoResult::Success();
 	}
 }
