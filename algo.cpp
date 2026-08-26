@@ -4,6 +4,7 @@
 import std;
 using json = nlohmann::json;
 
+const double ppmm_prealign=208.4; // pixels per mm for prealign images, used to convert wafer size in mm to pixels
 //typedef void(*CallBack)(int level, const char* message);
 static LogMessageCallBack g_logCallback = nullptr;
 ContourCalcParameter param_contour;
@@ -139,11 +140,11 @@ extern "C"
 		//fit a line to the edge points using cv::fitLine
 		cv::Vec4f lineParams;
 		cv::fitLine(pts,lineParams,cv::DIST_L2,0,0.01,0.01);
-		double R_wafer_px=param_contour.WaferSize/2*208.4;
+		//double R_wafer_px=param_contour.WaferSize/2*208.4;
+		double R_wafer_px=param_contour.WaferSize/2*ppmm_prealign;
 		//R_wafer_px=10000;
 
-		// draw the fitted line on a new overlay image
-		{
+		{ // draw the fitted line on a new overlay image
 			// lineParams: [vx, vy, x0, y0]
 			const double vx=lineParams[0];
 			const double vy=lineParams[1];
@@ -159,7 +160,7 @@ extern "C"
 			cv::cvtColor(img,lineOverlay,cv::COLOR_GRAY2BGR);
 
 			// 1. Find M, the mid point of the tangent line
-			cv::Point M(cvRound(x0),cvRound(y0));
+			cv::Point2d M(x0,y0);
 
 			// Determine the normal vector direction (towards the bright wafer region)
 			double nx=-vy,ny=vx;
@@ -172,19 +173,19 @@ extern "C"
 					normalPointsInward=true;
 			if(!normalPointsInward)
 			{
-				nx=-nx; ny=-ny;
+				nx=-nx;
+				ny=-ny;
 			}
 
 			// Find Cwafer, the wafer center, using R_wafer_px
-			cv::Point Cwafer(cvRound(x0+nx*R_wafer_px),cvRound(y0+ny*R_wafer_px));
-			//Draw the radius connecting M and Cwafer on the overlay image (blue)
-			cv::line(lineOverlay,M,Cwafer,cv::Scalar(255,0,0),2,cv::LINE_AA);
-			cv::line(lineOverlay,p1,p2,cv::Scalar(0,0,255),2,cv::LINE_AA); // draw fitted line (red) 
+			cv::Point2d Cwafer(x0+nx*R_wafer_px,y0+ny*R_wafer_px);
+			std::println("AddCenterCalculationImage: M=({},{}), Cwafer=({},{}), R_wafer_px={}",M.x,M.y,Cwafer.x,Cwafer.y,R_wafer_px);
+			cv::line(lineOverlay,M,Cwafer,cv::Scalar(255,0,0),2,cv::LINE_AA); //Blue for the radius connecting M and Cwafer 
+			cv::line(lineOverlay,p1,p2,cv::Scalar(0,0,255),2,cv::LINE_AA); //Red for fitted line
 			//Draw the circle on the overlay image (yellow)
 			//cv::circle(lineOverlay, Cwafer, cvRound(R_wafer_px), cv::Scalar(0, 255, 128), 2, cv::LINE_8);//red
 			std::vector<cv::Point> arc_pts;
-			// The angle from the center Cwafer pointing strictly back towards M
-			double start_angle=std::atan2(-ny,-nx);
+			double start_angle=std::atan2(-ny,-nx); // The angle from the center Cwafer pointing strictly back towards M
 			double angle_span=0.2; // Radian span to render (sufficient to cross the image)
 			double angle_step=0.001; // Ultra-fine step to defeat chord/polygon approximation 
 			for(double a=start_angle-angle_span; a<=start_angle+angle_span; a+=angle_step) {
@@ -196,7 +197,7 @@ extern "C"
 			// mark the point M on the line used by fitLine (white circle)
 			cv::circle(lineOverlay,M,4,cv::Scalar(255,255,255),-1,cv::LINE_AA);
 			// mark Cwafer (red circle)
-			cv::circle(lineOverlay,Cwafer,6,cv::Scalar(0,0,255),-1,cv::LINE_AA);
+			//cv::circle(lineOverlay,Cwafer,6,cv::Scalar(0,0,255),-1,cv::LINE_AA);
 			//save overlayimage
 			cv::imwrite(std::format("{}_fitted_line_overlay.png",id),lineOverlay);
 
@@ -205,18 +206,18 @@ extern "C"
 			//Cwafer.y=-13.0+R_wafer_px*std::sin(theta*3.14159265358979323846/180.0);
 			CwaferEstimated.emplace_back(static_cast<double>(Cwafer.x),static_cast<double>(Cwafer.y));
 		}
+		//{// Save processed contour points to an overlay image for visualization
+		//	std::vector<cv::Point> cpts;
+		//	cpts.reserve(pts.size());
+		//	for(const auto& p:pts) cpts.emplace_back(static_cast<int>(p.x),static_cast<int>(p.y));
 
-		// Save processed contour points to an overlay image for visualization
-		std::vector<cv::Point> cpts;
-		cpts.reserve(pts.size());
-		for(const auto& p:pts) cpts.emplace_back(static_cast<int>(p.x),static_cast<int>(p.y));
-
-		// overlay adjacent-point lines on original image (red)
-		std::vector<std::vector<cv::Point>> drawVec{cpts};
-		cv::Mat overlay;
-		cv::cvtColor(img,overlay,cv::COLOR_GRAY2BGR);
-		cv::polylines(overlay,drawVec,false,cv::Scalar(0,0,255),2,cv::LINE_AA);
-		cv::imwrite(std::format("{}_contour_overlay.png",id),overlay);
+		//	// overlay adjacent-point lines on original image (red)
+		//	std::vector<std::vector<cv::Point>> drawVec{cpts};
+		//	cv::Mat overlay;
+		//	cv::cvtColor(img,overlay,cv::COLOR_GRAY2BGR);
+		//	cv::polylines(overlay,drawVec,false,cv::Scalar(0,0,255),2,cv::LINE_AA);
+		//	cv::imwrite(std::format("{}_contour_overlay.png",id),overlay); 
+		//} 
 
 		centerCalculationImages.push_back(img.clone());
 		return AlgoResult::Success();
@@ -302,6 +303,7 @@ extern "C"
 	{
 		(void)height;(void)timestamp; (void)softBinning;
 		std::lock_guard<std::mutex> lock_imgs(mtx_rings); 
+		//validRows=std::min(validRows,rings[channelID][ringIndex].img.rows-rings[channelID][ringIndex].cursor);
 
 		size_t dataSize = static_cast<size_t>(width) * validRows;
 		cv::Mat &dst = rings[channelID][ringIndex].img;

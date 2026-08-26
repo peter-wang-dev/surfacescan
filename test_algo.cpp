@@ -25,7 +25,9 @@ TEST_F(AlgoTest,DISABLED_calib)
 	//load images from the directory
 	std::vector<cv::Mat> images;
 	namespace fs = std::filesystem;
-	fs::path dir = path_input+"stage_center_cal"; 
+	//fs::path dir = path_input+"stage_center_cal/main"; 
+	fs::path dir = path_input+"stage_center_cal/20260814/181739"; 
+	//fs::path dir = path_input+"stage_center_cal/20260814/181856"; 
 	ASSERT_EQ(fs::exists(dir),true)<<"Directory not found: "<<dir.string();
 	ASSERT_EQ(fs::is_directory(dir),true)<<"Not a directory: "<<dir.string();
 	std::vector<fs::path> files;
@@ -33,7 +35,7 @@ TEST_F(AlgoTest,DISABLED_calib)
 	{
 		if (!entry.is_regular_file()) continue;
 		auto ext = entry.path().extension().string();
-		//std::println("Found file: {} with extension: {}",entry.path().string(),ext);
+		std::println("Found file: {} with extension: {}",entry.path().string(),ext);
 		std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
 		if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tif" || ext == ".tiff")
 			files.push_back(entry.path());
@@ -82,6 +84,7 @@ TEST_F(AlgoTest,ChannelProcess_Single)
 		int numFrames=RingHeight/FrameHeight; //number of frames in this ring
 		float dI=255.0f/TotalRings; //intensity increment per ring
 		float dIframe=dI/numFrames; //intensity increment per frame
+		//FrameHeight=float(FrameHeight)*(std::rand()%10+95)/100.0f; //randomize frame height slightly
 		for(int kf=0;kf<numFrames;kf++)//index of frame in ring kr
 		{ 
 			int I=static_cast<int>(kr*dI+kf*dIframe); //intensity for this frame
