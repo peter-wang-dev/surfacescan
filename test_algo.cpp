@@ -60,7 +60,7 @@ TEST_F(AlgoTest,DISABLED_calib)
 	std::println("EndCenterCalculation result: dx={}, dy={}, angle={}\n",dx,dy,angle);
 	ASSERT_EQ(res_calend.IsSuccess,true)<<"End center calculation failed: "<<res_calend.ErrorMessage;
 }
-TEST_F(AlgoTest,ChannelProcess_Single)
+TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 {
 	auto channel=DetectChannel::Narrow; 
 	int FrameWidth=256,FrameHeight=274,TotalRings=10;
@@ -98,6 +98,104 @@ TEST_F(AlgoTest,ChannelProcess_Single)
 		ASSERT_EQ(res_endring.IsSuccess,true)<<"EndRingProcess failed: "<<res_endring.ErrorMessage;
 	}
 
+	auto res_endchannel=EndChannelProcess(channel,nullptr); 
+	std::println("EndChannelProcess result: IsSuccess={}, ErrorMessage=\"{}\"",res_endchannel.IsSuccess,res_endchannel.ErrorMessage);
+	ASSERT_EQ(res_endchannel.IsSuccess,true)<<"EndChannelProcess failed: "<<res_endchannel.ErrorMessage;
+}
+TEST_F(AlgoTest,ChannelProcess_Single_Offline)
+{
+	auto channel=DetectChannel::Narrow; 
+	float PixelSize=10; // um/pixel
+	namespace fs = std::filesystem;
+	
+	struct RingInfo {
+		int kr;
+		std::vector<fs::path> images;
+		int ringWidth = 0;
+		int ringHeight = 0;
+	};
+	
+	std::vector<RingInfo> rings;
+	int FrameWidth = 0, FrameHeight = 0;
+	int idx = 1;
+
+	// Pre-scan directories to determine parameters before calling APIs
+	while (true)
+	{
+		fs::path ring_dir = fs::path(path_input) / "fullmap/0826" / std::format("Ring{}", idx);
+		if (!fs::exists(ring_dir) || !fs::is_directory(ring_dir))
+			break;
+
+		RingInfo info;
+		info.kr = idx - 1;
+		for (auto const& entry : fs::directory_iterator(ring_dir)) 
+		{
+			if (!entry.is_regular_file()) continue;
+			auto ext = entry.path().extension().string();
+			std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+			if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tif" || ext == ".tiff")
+				info.images.push_back(entry.path());
+		} 
+		std::sort(info.images.begin(), info.images.end());
+
+		if (!info.images.empty())
+		{
+			cv::Mat first_img = cv::imread(info.images[0].string(), cv::IMREAD_UNCHANGED);
+			ASSERT_FALSE(first_img.empty()) << "Failed to load pre-scan image: " << info.images[0].string();
+
+			if (FrameWidth == 0) FrameWidth = first_img.cols;
+			if (FrameHeight == 0) FrameHeight = first_img.rows;
+			info.ringWidth = first_img.cols;
+			info.ringHeight = first_img.rows * info.images.size();
+		}
+		rings.push_back(info);
+		idx++;
+	}
+
+	int TotalRings = static_cast<int>(rings.size());
+	std::println("FrameWidth={}, FrameHeight={}, TotalRings={}", FrameWidth, FrameHeight, TotalRings);
+	for (const auto& ring : rings)
+	{
+		std::println("Ring {}: RingWidth={}, RingHeight={}", ring.kr, ring.ringWidth, ring.ringHeight);
+	}
+
+	ASSERT_GT(TotalRings, 0) << "No ring directories found.";
+	ASSERT_GT(FrameWidth, 0) << "Could not determine FrameWidth.";
+	ASSERT_GT(FrameHeight, 0) << "Could not determine FrameHeight.";
+
+	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"PixelSize\":{}}}",
+                                      FrameWidth, FrameHeight, TotalRings, PixelSize);
+	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
+                                            "cluster_setting.json","classify_setting.json",
+                                            "coord_cali_setting.json","DSizeCurve.json");
+	ASSERT_EQ(res_beginchannel.IsSuccess,true)<<"BeginChannelProcess failed: "<<res_beginchannel.ErrorMessage;
+
+	float theta0s[] = { 737.21f, 1817.21f, 2897.21f, 3977.21f, 5057.21f, 6137.21f, 7217.21f, 8297.21f, 9377.21f, 10457.21f, 11537.21f, 12617.21f, 13697.21f, 14777.21f, 15857.21f, 16937.21f };
+	float theta1s[] = { 1099.482f, 2184.677f, 3270.662f, 4357.632f, 5419.944f, 6507.232f, 7596.114f, 8687.176f, 9740.922f, 10833.112f, 11930.04f, 13035.134f, 14064.387f, 15180.914f, 16361.184f, 17351.218f };
+	for(const auto& ring : rings)//index of ring
+	{
+		float theta0 = theta0s[ring.kr], theta1 = theta1s[ring.kr]; //triggered start and end angles in degrees
+		//float theta0 = -68.0f, theta1 = theta0 + 360.0f; //triggered start and end angles in degrees
+		std::string coordCaliJson_ring = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggeredStart\":{{\"T\":{}}}, \"TriggeredEnd\":{{\"T\":{}}}}}", 
+                                             ring.ringWidth, ring.ringHeight, theta0, theta1);
+		auto res_beginring = BeginRingProcess(channel, ring.kr, "process_setting.json",
+                                      "haze_cali_setting.json", coordCaliJson_ring.c_str());
+		ASSERT_EQ(res_beginring.IsSuccess,true)<<"BeginRingProcess failed: "<<res_beginring.ErrorMessage;
+        
+		for (const auto& img_path : ring.images)
+		{
+			cv::Mat img = cv::imread(img_path.string(), cv::IMREAD_UNCHANGED);
+			ASSERT_FALSE(img.empty()) << "Failed to load image: " << img_path.string();
+			
+			auto res_addblock = AddRingProcessFrame(channel, ring.kr, img.data, img.cols, img.rows, img.rows, 0, 1);
+			ASSERT_EQ(res_addblock.IsSuccess,true)<<"AddRingProcessFrame failed: "<<res_addblock.ErrorMessage;
+		}
+
+		auto res_endring = EndRingProcess(channel, ring.kr, nullptr, nullptr);
+		std::println("EndRingProcess result for ring {}: IsSuccess={}, ErrorMessage=\"{}\"", ring.kr, res_endring.IsSuccess, res_endring.ErrorMessage);
+		ASSERT_EQ(res_endring.IsSuccess,true)<<"EndRingProcess failed: "<<res_endring.ErrorMessage;
+	}
+    
 	auto res_endchannel=EndChannelProcess(channel,nullptr); 
 	std::println("EndChannelProcess result: IsSuccess={}, ErrorMessage=\"{}\"",res_endchannel.IsSuccess,res_endchannel.ErrorMessage);
 	ASSERT_EQ(res_endchannel.IsSuccess,true)<<"EndChannelProcess failed: "<<res_endchannel.ErrorMessage;

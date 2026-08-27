@@ -323,6 +323,7 @@ extern "C"
 		{// lock scope for ring image processing
 			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 			rimg = rings[channelID][ringIndex].img.clone(); // or assign without clone if you prefer shared header
+			//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
 		}
 		cv::Mat defectmap = rimg.clone(); // For demonstration, copy the ring image to defect map
 		{// Process the ring image to detect defects and populate the defect map
@@ -404,6 +405,7 @@ extern "C"
 
 				row=std::clamp(row,0,rows-1);
 				col=std::clamp(col,0,cols-1);
+				col=cols-col;// flip the column index to match the orientation of the ring image
 
 				mergedImage.at<uchar>(i,j)=rings_copy[idxr].defectmap.at<uchar>(row,col);
 			}
