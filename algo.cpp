@@ -1,17 +1,13 @@
 ﻿#include "algorithm.h"
 #include <opencv2/opencv.hpp>
 #include <nlohmann/json.hpp>
+#include "io.h"
 import std;
 using json = nlohmann::json;
 
 const float twopi=2.0f*static_cast<float>(CV_PI);
 const double ppmm_prealign=208.4; // pixels per mm for prealign images, used to convert wafer size in mm to pixels
 static LogMessageCallBack g_logCallback=nullptr; 
-void write_log(LogType level,const char* source,const char* message)
-{
-	if(g_logCallback) g_logCallback(level,source,message);
-	else printf("[%d] %s: %s\n",static_cast<int>(level),source,message);
-}
 ContourCalcParameter param_contour;
 std::vector <cv::Mat> centerCalculationImages;
 std::vector <cv::Point2d> CwaferEstimated;
@@ -28,6 +24,11 @@ struct Ring
 };
 std::mutex mtx_rings;
 std::map<DetectChannel,std::vector<Ring>> rings; //data structure to hold rings for each channel
+void write_log(LogType level,const char* source,const char* message)
+{
+	if(g_logCallback) g_logCallback(level,source,message);
+	else printf("[%d] %s: %s\n",static_cast<int>(level),source,message);
+}
 extern "C"
 {
 	AlgoResult SetLogMessageCallBack(LogMessageCallBack callBackPointer)
@@ -381,10 +382,13 @@ extern "C"
 
 		int W=2*std::accumulate(ringWidths.begin(),ringWidths.end(),0);
 		int H=W;
-		std::lock_guard <std::mutex> lock_settings(mtx_chsettings);
-		//float pixelSize=chsettings[channelID]["PixelSize"];
-		int N=chsettings[channelID]["ring"]["TotalRings"];
-		//float Wr=chsettings[channelID]["ring"]["RingWidth"];
+		int N=0;// number of rings
+		{
+			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
+			//float pixelSize=chsettings[channelID]["PixelSize"];
+			N=chsettings[channelID]["ring"]["TotalRings"]; 
+			//float Wr=chsettings[channelID]["ring"]["RingWidth"];
+		}
 		cv::Mat mergedImage(H,W,CV_8UC1,cv::Scalar(0));
 		//Now we find the pixel value for each pixel in the mergedImage by mapping it to the corresponding ring image
 		//The first ring image corresponds to the outermost ring. In each ring image, the first column corresponds to the angle 0, and the last column corresponds to the angle 2*pi. The first row corresponds to the outer edge of the ring, and the last row corresponds to the inner edge of the ring.
@@ -429,7 +433,19 @@ extern "C"
 			}
 		}
 		write_log(LogType::Info,"EndChannelProcess","full map constructed, saving to file");
-		cv::imwrite(std::format("ch{}_defect.png",static_cast<int>(channelID)),mergedImage);
+		cv::imwrite(std::format("ch{}_defect.png",static_cast<int>(channelID)),mergedImage); 
+		if(!descriptor)
+		{ 
+			write_log(LogType::Error,"EndChannelProcess","descriptor is null, cannot fill defect info list");
+			return AlgoResult::Success();
+			//return AlgoResult::Failure("descriptor is null");
+		} 
+		size_t numDefects=100; // For demonstration, we will fill in some dummy defect info 
+		std::vector<DefectInfoStruct> defects(numDefects);
+		defects[0]={1,channelID,DefectType::LPD,1,10,20.0f,30.0f,40.0f,5.0f,5.0f,25.0f,1.0f,1.5f,10.0f,0.01f,0.02f,100,200,4,100};
+		descriptor->ParticleCount=static_cast<int>(defects.size());
+		descriptor->DataSize=static_cast<int>(defects.size()*sizeof(DefectInfoStruct)); 
+		save_to_mmap(descriptor->Name,(void*)defects.data(),defects.size()*sizeof(DefectInfoStruct));
 		return AlgoResult::Success();
 	}
 }

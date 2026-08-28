@@ -15,10 +15,10 @@ find_package(nlohmann_json CONFIG REQUIRED)
 include(GoogleTest)  # for testing
 
 
-add_library(algo SHARED algo.cpp algorithm.h)
+add_library(algo SHARED algo.cpp algorithm.h io.h io.cpp)
 target_link_libraries(algo PRIVATE ${OpenCV_LIBS})
 target_link_libraries(algo PRIVATE nlohmann_json::nlohmann_json)
-add_executable(test_algo test_algo.cpp)
+add_executable(test_algo test_algo.cpp io.h io.cpp)
 target_link_libraries(test_algo PRIVATE GTest::gtest_main ${OpenCV_LIBS} algo)
 gtest_discover_tests(test_algo)
 

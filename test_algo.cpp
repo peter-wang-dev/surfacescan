@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "algorithm.h"
 #include <opencv2/opencv.hpp>
+#include "io.h"
 import std;
 std::string path_output="./test_output/"; 
 std::string path_input="C:/astri2/cnsvision/testinput/"; 
@@ -98,8 +99,19 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 		ASSERT_EQ(res_endring.IsSuccess,true)<<"EndRingProcess failed: "<<res_endring.ErrorMessage;
 	}
 
-	auto res_endchannel=EndChannelProcess(channel,nullptr); 
-	std::println("EndChannelProcess result: IsSuccess={}, ErrorMessage=\"{}\"",res_endchannel.IsSuccess,res_endchannel.ErrorMessage);
+	DefectInfoListStruct desc={"desc",0,0};
+	auto res_endchannel=EndChannelProcess(channel,&desc); 
+	auto numParticles=desc.ParticleCount;
+	auto dataSize=desc.DataSize;
+	std::println("EndChannelProcess result: IsSuccess={}, ErrorMessage=\"{}\", ParticleCount={}, DataSize={}",res_endchannel.IsSuccess,res_endchannel.ErrorMessage,numParticles,dataSize);
+	DefectInfoStruct* pData=nullptr;
+	size_t loadedSize=0;
+	load_from_mmap(desc.Name,(void**)&pData,&loadedSize);
+	ASSERT_NE(pData,nullptr)<<"load_from_mmap failed for name: "<<desc.Name;
+	std::println("Loaded {} bytes from shared memory \"{}\". Expected DataSize={}",loadedSize,desc.Name,dataSize);
+	std::println("First  DefectInfoStruct :");
+	std::println("DefectID={}, ChannelID={}, DefectType={}, BinCode={}",pData->DefectID,static_cast<int>(pData->ChannelID),static_cast<int>(pData->DefectType),pData->BinCode);
+	std::println("CoordR={}, CoordT={}, CoordX={}, CoordY={}",pData->CoordR,pData->CoordT,pData->CoordX,pData->CoordY);
 	ASSERT_EQ(res_endchannel.IsSuccess,true)<<"EndChannelProcess failed: "<<res_endchannel.ErrorMessage;
 }
 TEST_F(AlgoTest,ChannelProcess_Single_Offline)
