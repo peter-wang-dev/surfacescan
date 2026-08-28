@@ -4,9 +4,14 @@
 import std;
 using json = nlohmann::json;
 
+const float twopi=2.0f*static_cast<float>(CV_PI);
 const double ppmm_prealign=208.4; // pixels per mm for prealign images, used to convert wafer size in mm to pixels
-//typedef void(*CallBack)(int level, const char* message);
-static LogMessageCallBack g_logCallback = nullptr;
+static LogMessageCallBack g_logCallback=nullptr; 
+void write_log(LogType level,const char* source,const char* message)
+{
+	if(g_logCallback) g_logCallback(level,source,message);
+	else printf("[%d] %s: %s\n",static_cast<int>(level),source,message);
+}
 ContourCalcParameter param_contour;
 std::vector <cv::Mat> centerCalculationImages;
 std::vector <cv::Point2d> CwaferEstimated;
@@ -18,7 +23,7 @@ struct Ring
 	cv::Mat img; // accumulated images 
 	cv::Mat defectmap; // defect map 
 	int cursor=0; // current row index for adding new frames
-	float theta0,theta1; // starting angle for this ring
+	float theta0,theta1; // [in radians] starting angle for this ring
 	json processSetting, hazeCaliSetting, coordCaliSetting;
 };
 std::mutex mtx_rings;
@@ -38,6 +43,7 @@ extern "C"
 			std::lock_guard<std::mutex> lock(mtx_chsettings);
 			chsettings.clear(); // Clear any previously stored channel settings
 		}
+		write_log(LogType::Info,"Initialize","Algorithm module initialized");
 		return AlgoResult::Success();
 	}
 
@@ -51,7 +57,7 @@ extern "C"
 		(void)stageAngle;
 		cv::Mat img(param_contour.ImageHeight,param_contour.ImageWidth,CV_8UC1,const_cast<unsigned char*>(imageData));
 		if(img.empty()||img.type()!=CV_8UC1) {
-			printf("EndCenterCalculation: invalid image\n");
+			write_log(LogType::Error, "AddCenterCalculationImage", "EndCenterCalculation: invalid image");
 			return AlgoResult::Failure("Invalid image");
 		}
 
@@ -70,7 +76,7 @@ extern "C"
 			cv::findContours(imgb_inv,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE);
 
 			if(contours.empty())
-				printf("AddCenterCalculationImage: no contours found\n");
+				write_log(LogType::Warning, "AddCenterCalculationImage", "no contours found");
 			else 
 			{ // select largest by area
 				double maxArea=0.0;
@@ -84,7 +90,7 @@ extern "C"
 					contour_b.reserve(c.size());
 					for(const auto& pt:c) contour_b.emplace_back(pt.x,pt.y);
 					// optional debug print
-					//printf("AddCenterCalculationImage: largest contour size=%zu, area=%f\n", contour_b.size(), maxArea);
+					//write_log(LogType::Debug, "AddCenterCalculationImage", std::format("largest contour size={}, area={}", contour_b.size(), maxArea).c_str());
 				}
 			}
 		}
@@ -99,7 +105,7 @@ extern "C"
 				continue; // skip border points
 			pts.emplace_back(static_cast<double>(x),static_cast<double>(y));
 		}
-		//std::println("AddCenterCalculationImage: collected {} edge points from contour_b",pts.size());
+		//write_log(LogType::Debug, "AddCenterCalculationImage", std::format("collected {} edge points from contour_b", pts.size()).c_str());
 
 		if(pts.size()<100)
 		{
@@ -125,13 +131,13 @@ extern "C"
 		cv::Mat1d sol;
 		bool ok = cv::solve(M, b, sol, cv::DECOMP_SVD);
 		if (!ok || sol.rows != 3) {
-			printf("EndCenterCalculation: circle fit failed\n");
+			//write_log(LogType::Error, "AddCenterCalculationImage", "EndCenterCalculation: circle fit failed");
 			return AlgoResult::Success();
 		}
 		double A = sol(0, 0), B = sol(1, 0), C = sol(2, 0);
 		double xc = -A / 2.0, yc = -B / 2.0, r2 = xc * xc + yc * yc - C;
 		double r = (r2 > 0.0) ? std::sqrt(r2) : 0.0;
-		printf("Fitted circle: center=(%f, %f), radius=%f\n", xc, yc, r);
+		//write_log(LogType::Info, "AddCenterCalculationImage", std::format("Fitted circle: center=({},{}), radius={}", xc, yc, r).c_str());
 		cv::Mat imgWithCircle = img.clone();
 		cv::circle(imgWithCircle, cv::Point(static_cast<int>(xc), static_cast<int>(yc)), static_cast<int>(r), cv::Scalar(255), 2);
 		cv::imwrite(std::format("{}_fitted_circle.png", id), imgWithCircle);
@@ -179,7 +185,7 @@ extern "C"
 
 			// Find Cwafer, the wafer center, using R_wafer_px
 			cv::Point2d Cwafer(x0+nx*R_wafer_px,y0+ny*R_wafer_px);
-			std::println("AddCenterCalculationImage: M=({},{}), Cwafer=({},{}), R_wafer_px={}",M.x,M.y,Cwafer.x,Cwafer.y,R_wafer_px);
+			write_log(LogType::Info, "AddCenterCalculationImage", std::format("M=({},{}), Cwafer=({},{}), R_wafer_px={}", M.x, M.y, Cwafer.x, Cwafer.y, R_wafer_px).c_str());
 			cv::line(lineOverlay,M,Cwafer,cv::Scalar(255,0,0),2,cv::LINE_AA); //Blue for the radius connecting M and Cwafer 
 			cv::line(lineOverlay,p1,p2,cv::Scalar(0,0,255),2,cv::LINE_AA); //Red for fitted line
 			//Draw the circle on the overlay image (yellow)
@@ -269,7 +275,8 @@ extern "C"
 		chsettings[channelID]["ring"]=json::parse(ringSetting); // Store the coordCaliSetting for this channel
 		std::lock_guard<std::mutex> lock_imgs(mtx_rings); 
 		rings[channelID]=std::vector<Ring>(chsettings[channelID]["ring"]["TotalRings"]);
-		std::println("BeginChannelProcess: channelID={}, ringSetting={}",static_cast<int>(channelID),ringSetting);
+		//std::println("BeginChannelProcess: channelID={}, ringSetting={}",static_cast<int>(channelID),ringSetting);
+		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, ringSetting={}",static_cast<int>(channelID),ringSetting).c_str());
 		return AlgoResult::Success();
 	}
 	ALGO_API AlgoResult BeginRingProcess(DetectChannel channelID,int ringIndex,
@@ -292,8 +299,12 @@ extern "C"
 		float theta1_angle=coordCaliJson["TriggeredEnd"]["T"];
 		float thetadiff_angle=theta1_angle-theta0_angle;
 		ring.theta0=theta0_angle/180.0f * static_cast<float>(CV_PI); //coverting to radians if needed, but assuming the input is in degrees or radians as required
+		while(ring.theta0>twopi) ring.theta0-=twopi;
 		ring.theta1=ring.theta0+thetadiff_angle/180.0f * static_cast<float>(CV_PI); 
+
+		//ring.theta1=ring.theta0+thetadiff_angle/180.0f * static_cast<float>(CV_PI); 
 		//std::println("BeginRingProcess: ringIndex={}, theta0={} rad, theta1={} rad",ringIndex,ring.theta0,ring.theta1);
+		write_log(LogType::Info,"BeginRingProcess",std::format(" ringIndex={}, theta0={} rad, theta1={} rad",ringIndex,ring.theta0,ring.theta1).c_str());
 		return AlgoResult::Success();
 	}
 
@@ -308,10 +319,14 @@ extern "C"
 		size_t dataSize = static_cast<size_t>(width) * validRows;
 		cv::Mat &dst = rings[channelID][ringIndex].img;
 		size_t offset = static_cast<size_t>(rings[channelID][ringIndex].cursor) * static_cast<size_t>(width);
-		if (offset + dataSize > static_cast<size_t>(dst.rows) * static_cast<size_t>(dst.cols))
+		if(offset+dataSize>static_cast<size_t>(dst.rows)*static_cast<size_t>(dst.cols))
+		{ 
+			write_log(LogType::Error,"AddRingProcessFrame",std::format("data exceeds allocated ring image size: offset={} + dataSize={} > totalSize={}",offset,dataSize,dst.rows*dst.cols).c_str());
 			return AlgoResult::Failure("AddRingProcessFrame: data exceeds allocated ring image size");
+		}
 		std::memcpy(dst.data + offset, imageData, dataSize);
 		rings[channelID][ringIndex].cursor += validRows;
+		write_log(LogType::Info,"AddRingProcessFrame",std::format("channelID={}, ringIndex={}, added {} rows, cursor now at {}",static_cast<int>(channelID),ringIndex,validRows,rings[channelID][ringIndex].cursor).c_str());
 		return AlgoResult::Success();
 	}
 
@@ -330,6 +345,7 @@ extern "C"
 			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 			rings[channelID][ringIndex].defectmap=defectmap.clone(); // For demonstration, copy the ring image to defect map
 		}
+		write_log(LogType::Info,"EndRingProcess",std::format("channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 		auto fn=std::format("ch{}r{}.png",static_cast<int>(channelID),ringIndex);
 		cv::imwrite(fn,rimg);
 		auto fn_defect=std::format("ch{}r{}_defect.png",static_cast<int>(channelID),ringIndex);
@@ -373,6 +389,7 @@ extern "C"
 		//Now we find the pixel value for each pixel in the mergedImage by mapping it to the corresponding ring image
 		//The first ring image corresponds to the outermost ring. In each ring image, the first column corresponds to the angle 0, and the last column corresponds to the angle 2*pi. The first row corresponds to the outer edge of the ring, and the last row corresponds to the inner edge of the ring.
 		//The the first row of each ring image corresponds to theta=0, and the last row corresponds to theta=2*pi. 
+		write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, constructing full map of size={}x{}",static_cast<int>(channelID),mergedImage.cols,mergedImage.rows).c_str());
 		for(int i=0;i<H;i++)
 		{
 			for(int j=0;j<W;j++)
@@ -392,9 +409,10 @@ extern "C"
 					continue;
 
 				const float theta0=rings_copy[idxr].theta0;
-				const float theta1=rings_copy[idxr].theta1;
-				while(theta<theta0)
-					theta+=2.0f*static_cast<float>(CV_PI);
+				//const float theta1=rings_copy[idxr].theta1;
+				const float theta1=theta0+twopi;
+				if(theta<theta0)
+					theta+=twopi;
 
 				int rows=rings_copy[idxr].defectmap.rows;
 				int cols=rings_copy[idxr].defectmap.cols;
@@ -410,6 +428,7 @@ extern "C"
 				mergedImage.at<uchar>(i,j)=rings_copy[idxr].defectmap.at<uchar>(row,col);
 			}
 		}
+		write_log(LogType::Info,"EndChannelProcess","full map constructed, saving to file");
 		cv::imwrite(std::format("ch{}_defect.png",static_cast<int>(channelID)),mergedImage);
 		return AlgoResult::Success();
 	}

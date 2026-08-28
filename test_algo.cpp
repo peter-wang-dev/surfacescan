@@ -119,6 +119,9 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	int FrameWidth = 0, FrameHeight = 0;
 	int idx = 1;
 
+	float theta0s[] = { 737.21f, 1817.21f, 2897.21f, 3977.21f, 5057.21f, 6137.21f, 7217.21f, 8297.21f, 9377.21f, 10457.21f, 11537.21f, 12617.21f, 13697.21f, 14777.21f, 15857.21f, 16937.21f };
+	float theta1s[] = { 1099.482f, 2184.677f, 3270.662f, 4357.632f, 5419.944f, 6507.232f, 7596.114f, 8687.176f, 9740.922f, 10833.112f, 11930.04f, 13035.134f, 14064.387f, 15180.914f, 16361.184f, 17351.218f };
+	int validRows[]={188809, 176343, 163877, 151411, 138945, 126480, 114014, 101548, 89082, 76616, 64150, 51684, 39219, 26753, 14287, 6233}; 
 	// Pre-scan directories to determine parameters before calling APIs
 	while (true)
 	{
@@ -146,7 +149,8 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 			if (FrameWidth == 0) FrameWidth = first_img.cols;
 			if (FrameHeight == 0) FrameHeight = first_img.rows;
 			info.ringWidth = first_img.cols;
-			info.ringHeight = first_img.rows * info.images.size();
+			//info.ringHeight = first_img.rows * static_cast<int>(info.images.size());
+			info.ringHeight = validRows[info.kr];
 		}
 		rings.push_back(info);
 		idx++;
@@ -170,8 +174,6 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
                                             "coord_cali_setting.json","DSizeCurve.json");
 	ASSERT_EQ(res_beginchannel.IsSuccess,true)<<"BeginChannelProcess failed: "<<res_beginchannel.ErrorMessage;
 
-	float theta0s[] = { 737.21f, 1817.21f, 2897.21f, 3977.21f, 5057.21f, 6137.21f, 7217.21f, 8297.21f, 9377.21f, 10457.21f, 11537.21f, 12617.21f, 13697.21f, 14777.21f, 15857.21f, 16937.21f };
-	float theta1s[] = { 1099.482f, 2184.677f, 3270.662f, 4357.632f, 5419.944f, 6507.232f, 7596.114f, 8687.176f, 9740.922f, 10833.112f, 11930.04f, 13035.134f, 14064.387f, 15180.914f, 16361.184f, 17351.218f };
 	for(const auto& ring : rings)//index of ring
 	{
 		float theta0 = theta0s[ring.kr], theta1 = theta1s[ring.kr]; //triggered start and end angles in degrees
@@ -180,20 +182,25 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
                                              ring.ringWidth, ring.ringHeight, theta0, theta1);
 		auto res_beginring = BeginRingProcess(channel, ring.kr, "process_setting.json",
                                       "haze_cali_setting.json", coordCaliJson_ring.c_str());
-		ASSERT_EQ(res_beginring.IsSuccess,true)<<"BeginRingProcess failed: "<<res_beginring.ErrorMessage;
-        
+		ASSERT_EQ(res_beginring.IsSuccess,true)<<"BeginRingProcess failed: "<<res_beginring.ErrorMessage; 
+		int rows_remaining = validRows[ring.kr];
+		std::println("Ring {} started with ringWidth={}, ringHeight={}, validRows={}",ring.kr,ring.ringWidth,ring.ringHeight,rows_remaining);
 		for (const auto& img_path : ring.images)
 		{
 			cv::Mat img = cv::imread(img_path.string(), cv::IMREAD_UNCHANGED);
-			ASSERT_FALSE(img.empty()) << "Failed to load image: " << img_path.string();
-			
-			auto res_addblock = AddRingProcessFrame(channel, ring.kr, img.data, img.cols, img.rows, img.rows, 0, 1);
+			ASSERT_FALSE(img.empty()) << "Failed to load image: " << img_path.string(); 
+			int frame_height=std::min(img.rows,rows_remaining);
+			//std::println("Adding frame from {} ({}x{}) to ring {} with frame_height={} and rows_remaining={}",img_path.string(),img.cols,img.rows,ring.kr,frame_height,rows_remaining);
+			auto res_addblock = AddRingProcessFrame(channel, ring.kr, img.data, img.cols, img.rows, frame_height, 0, 1);
+			//auto res_addblock = AddRingProcessFrame(channel, ring.kr, img.data, img.cols, img.rows, img.rows, 0, 1);
+			rows_remaining-=frame_height;
+			//if(rows_remaining<=0) break;
 			ASSERT_EQ(res_addblock.IsSuccess,true)<<"AddRingProcessFrame failed: "<<res_addblock.ErrorMessage;
 		}
 
 		auto res_endring = EndRingProcess(channel, ring.kr, nullptr, nullptr);
-		std::println("EndRingProcess result for ring {}: IsSuccess={}, ErrorMessage=\"{}\"", ring.kr, res_endring.IsSuccess, res_endring.ErrorMessage);
 		ASSERT_EQ(res_endring.IsSuccess,true)<<"EndRingProcess failed: "<<res_endring.ErrorMessage;
+		std::println("Ring {} ended. {} rows in total; {} rows valid.",ring.kr,ring.ringHeight,validRows[ring.kr]);
 	}
     
 	auto res_endchannel=EndChannelProcess(channel,nullptr); 
@@ -203,6 +210,14 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 TEST_F(AlgoTest,ChannelProcess_Multiple)
 {
 
+}
+TEST_F(AlgoTest,ErrorLogs)
+{
+	Initialize();
+	SetLogMessageCallBack([](LogType level, const char* source, const char* message){
+		std::println("CustomizedLog [{}] {}: {}", static_cast<int>(level), source, message);
+	});
+	Initialize();
 }
 int main(int argc, char **argv) 
 {

@@ -222,7 +222,7 @@ enum class LogType : int
     None  = 0,
     Fatal = 1,
     Error = 2,
-    Warn  = 3,
+    Warning  = 3,
     Debug = 4,
     Info  = 5,
     All   = 6
