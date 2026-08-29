@@ -3,6 +3,7 @@
 #include "io.h"
 import std;
 
+std::map<void*,HANDLE> g_mmap_registry;
 void save_to_mmap(const char* name, const void* data, size_t size)
 {
     // Explicitly target the local session namespace
@@ -37,6 +38,7 @@ void save_to_mmap(const char* name, const void* data, size_t size)
     // Deliberately doing NOT call UnmapViewOfFile(pBuf) or CloseHandle(hMapFile) 
     // so the data stays accessible process-wide.
     std::println("save_to_mmap: Saved {} bytes to shared memory \"{}\"", size, mapping_name);
+    g_mmap_registry[pBuf] = hMapFile;
 }
 
 void load_from_mmap(const char* name, void** data, size_t* size)
@@ -79,4 +81,13 @@ void load_from_mmap(const char* name, void** data, size_t* size)
     // We CAN close the handle here securely because MapViewOfFile succeeded 
     // and naturally bumps the object's reference counter, keeping it alive.
     CloseHandle(hMapFile);
+}
+void release_all_mmap()
+{
+     for (auto& mapping : g_mmap_registry) 
+     {
+         UnmapViewOfFile(mapping.first);
+         CloseHandle(mapping.second);
+     }
+     g_mmap_registry.clear();
 }

@@ -44,6 +44,11 @@ extern "C"
 			std::lock_guard<std::mutex> lock(mtx_chsettings);
 			chsettings.clear(); // Clear any previously stored channel settings
 		}
+		release_all_mmap(); // Release all memory-mapped files
+		{
+			std::lock_guard<std::mutex> lock(mtx_rings);
+			rings.clear(); // Clear any previously stored rings
+		}
 		write_log(LogType::Info,"Initialize","Algorithm module initialized");
 		return AlgoResult::Success();
 	}
