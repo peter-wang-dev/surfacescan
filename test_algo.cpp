@@ -3,7 +3,8 @@
 #include <opencv2/opencv.hpp>
 #include "io.h"
 import std;
-std::string path_output="./test_output/"; 
+std::string path_output="test_output"; 
+//std::string path_output="C:/Users/cyber/test_output"; 
 std::string path_input="C:/astri2/cnsvision/testinput/"; 
 //const std::string path_input="./test_output/"; 
 class AlgoTest: public ::testing::Test
@@ -65,9 +66,10 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 {
 	auto channel=DetectChannel::Narrow; 
 	int FrameWidth=256,FrameHeight=274,TotalRings=10;
-	float PixelSize=10; // um/pixel
-	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"PixelSize\":{}}}",
-                                      FrameWidth, FrameHeight, TotalRings, PixelSize);
+	//float PixelSize=10; // um/pixel
+	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
+                                      FrameWidth, FrameHeight, TotalRings, std::filesystem::absolute(path_output).generic_string());
+	std::println("Ring settings JSON: {}",ringsettings);
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json","classify_setting.json",
                                             "coord_cali_setting.json","DSizeCurve.json");
@@ -78,7 +80,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 		float theta0=kr*20.0f,theta1=theta0+360.0f; //triggered start and end angles in degrees
 		//int RingWidth=FrameWidth,RingHeight=27400;
 		int RingWidth=FrameWidth*(std::rand()%3+1),RingHeight=27400;
-		std::string coordCaliJson_ring = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggeredStart\":{{\"T\":{}}}, \"TriggeredEnd\":{{\"T\":{}}}}}", RingWidth, RingHeight, theta0,theta1);
+		std::string coordCaliJson_ring = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggerStart\":{{\"T\":{}}}, \"TriggerEnd\":{{\"T\":{}}}}}", RingWidth, RingHeight, theta0,theta1);
 		auto res_beginring = BeginRingProcess(channel, kr, "process_setting.json",
                                       "haze_cali_setting.json", coordCaliJson_ring.c_str());
 		ASSERT_EQ(res_beginring.IsSuccess,true)<<"BeginRingProcess failed: "<<res_beginring.ErrorMessage;
@@ -117,7 +119,6 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 {
 	auto channel=DetectChannel::Narrow; 
-	float PixelSize=10; // um/pixel
 	namespace fs = std::filesystem;
 	
 	struct RingInfo {
@@ -179,8 +180,8 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	ASSERT_GT(FrameWidth, 0) << "Could not determine FrameWidth.";
 	ASSERT_GT(FrameHeight, 0) << "Could not determine FrameHeight.";
 
-	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"PixelSize\":{}}}",
-                                      FrameWidth, FrameHeight, TotalRings, PixelSize);
+	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
+                                      FrameWidth, FrameHeight, TotalRings, path_output);
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json","classify_setting.json",
                                             "coord_cali_setting.json","DSizeCurve.json");
@@ -190,7 +191,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	{
 		float theta0 = theta0s[ring.kr], theta1 = theta1s[ring.kr]; //triggered start and end angles in degrees
 		//float theta0 = -68.0f, theta1 = theta0 + 360.0f; //triggered start and end angles in degrees
-		std::string coordCaliJson_ring = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggeredStart\":{{\"T\":{}}}, \"TriggeredEnd\":{{\"T\":{}}}}}", 
+		std::string coordCaliJson_ring = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggerStart\":{{\"T\":{}}}, \"TriggerEnd\":{{\"T\":{}}}}}", 
                                              ring.ringWidth, ring.ringHeight, theta0, theta1);
 		auto res_beginring = BeginRingProcess(channel, ring.kr, "process_setting.json",
                                       "haze_cali_setting.json", coordCaliJson_ring.c_str());
@@ -237,7 +238,7 @@ int main(int argc, char **argv)
 	//std::string resdir="C:/astri2/lasv/lasvrepo/res"; //default resource directory
 	//std::println("Using resource directory: {}",resdir);
 	//std::filesystem::current_path(resdir); // Set working directory
-	std::filesystem::current_path(path_output);
+	//std::filesystem::current_path(path_output);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

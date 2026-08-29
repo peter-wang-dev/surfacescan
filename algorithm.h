@@ -284,8 +284,8 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 ///     "FrameWidth": 1024,              // int: 单帧宽度（像素）
 ///     "FrameHeight": 256,              // int: 单帧高度（像素）
 ///     "TotalRings": 10,                // int: 总圈数
-///     "SupposedRingHeights": [100, 200, ...],  // int[]: 各圈预期行数
-///     "IntensityCalibration": "Haze"   // string: 光强校准策略 None|Haze|SelfHaze|RefHaze
+///     "IntensityCalibration": "Haze",   // string: 光强校准策略 None|Haze|SelfHaze|RefHaze
+///     "ImageSaveDirectory": ""
 /// }
 /// clusterSetting: {
 ///     "WaferRadius": float,            // 晶圆半径mm

@@ -296,8 +296,8 @@ extern "C"
 		auto& ring=rings[channelID][ringIndex];
 		ring.img = cv::Mat(RingHeight, RingWidth, CV_8UC1);
 		ring.cursor = 0;
-		float theta0_angle=coordCaliJson["TriggeredStart"]["T"];
-		float theta1_angle=coordCaliJson["TriggeredEnd"]["T"];
+		float theta0_angle=coordCaliJson["TriggerStart"]["T"];
+		float theta1_angle=coordCaliJson["TriggerEnd"]["T"];
 		float thetadiff_angle=theta1_angle-theta0_angle;
 		ring.theta0=theta0_angle/180.0f * static_cast<float>(CV_PI); //coverting to radians if needed, but assuming the input is in degrees or radians as required
 		while(ring.theta0>twopi) ring.theta0-=twopi;
@@ -347,10 +347,19 @@ extern "C"
 			rings[channelID][ringIndex].defectmap=defectmap.clone(); // For demonstration, copy the ring image to defect map
 		}
 		write_log(LogType::Info,"EndRingProcess",std::format("channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-		auto fn=std::format("ch{}r{}.png",static_cast<int>(channelID),ringIndex);
-		cv::imwrite(fn,rimg);
-		auto fn_defect=std::format("ch{}r{}_defect.png",static_cast<int>(channelID),ringIndex);
-		cv::imwrite(fn_defect,defectmap);
+		std::string dir; 
+		{
+			std::lock_guard<std::mutex> gd(mtx_chsettings); 
+			std::cout<<chsettings[channelID]["ring"];
+			dir=chsettings[channelID]["ring"]["ImageSaveDirectory"];
+		} 
+		if(dir!="")
+		{
+			auto fn=dir+std::format("/ch{}r{}.png",static_cast<int>(channelID),ringIndex);
+			cv::imwrite(fn,rimg);
+			auto fn_defect=dir+std::format("/ch{}r{}_defect.png",static_cast<int>(channelID),ringIndex);
+			cv::imwrite(fn_defect,defectmap); 
+		}
 		return AlgoResult::Success();
 	}
 
@@ -433,7 +442,18 @@ extern "C"
 			}
 		}
 		write_log(LogType::Info,"EndChannelProcess","full map constructed, saving to file");
-		cv::imwrite(std::format("ch{}_defect.png",static_cast<int>(channelID)),mergedImage); 
+		std::string dir; 
+		{
+			std::lock_guard<std::mutex> gd(mtx_chsettings); 
+			std::cout<<chsettings[channelID]["ring"]<<std::endl;
+			dir=chsettings[channelID]["ring"]["ImageSaveDirectory"];
+			//std::println("saving to {}",dir);
+		} 
+
+		//std::cout<<"Current path right now: "<<std::filesystem::current_path()<<"\n";
+		//std::cout<<"Target absolute path: "<<std::filesystem::absolute(dir+"/img.png")<<"\n";
+		if(dir!="")
+			cv::imwrite(dir+std::format("/ch{}_defect.png",static_cast<int>(channelID)),mergedImage); 
 		if(!descriptor)
 		{ 
 			write_log(LogType::Error,"EndChannelProcess","descriptor is null, cannot fill defect info list");
