@@ -330,6 +330,8 @@ extern "C"
 			write_log(LogType::Error,"AddRingProcessFrame",std::format("data exceeds allocated ring image size: offset={} + dataSize={} > totalSize={}",offset,dataSize,dst.rows*dst.cols).c_str());
 			return AlgoResult::Failure("AddRingProcessFrame: data exceeds allocated ring image size");
 		}
+		//cv::Mat temp(height,width,CV_8UC1,const_cast<unsigned char*>(imageData));
+		//cv::imwrite("d:/tmp/verification.png", temp);
 		std::memcpy(dst.data + offset, imageData, dataSize);
 		rings[channelID][ringIndex].cursor += validRows;
 		write_log(LogType::Info,"AddRingProcessFrame",std::format("channelID={}, ringIndex={}, added {} rows, cursor now at {}",static_cast<int>(channelID),ringIndex,validRows,rings[channelID][ringIndex].cursor).c_str());
@@ -355,7 +357,7 @@ extern "C"
 		std::string dir; 
 		{
 			std::lock_guard<std::mutex> gd(mtx_chsettings); 
-			std::cout<<chsettings[channelID]["ring"];
+			//std::cout<<chsettings[channelID]["ring"];
 			dir=chsettings[channelID]["ring"]["ImageSaveDirectory"];
 		} 
 		if(dir!="")
@@ -429,7 +431,7 @@ extern "C"
 				const float theta0=rings_copy[idxr].theta0;
 				//const float theta1=rings_copy[idxr].theta1;
 				const float theta1=theta0+twopi;
-				if(theta<theta0)
+				while(theta<theta0)
 					theta+=twopi;
 
 				int rows=rings_copy[idxr].defectmap.rows;
@@ -439,6 +441,12 @@ extern "C"
 				float r_in_ring=ringStart[idxr]-r;
 				int col=static_cast<int>((r_in_ring/ringWidths[idxr])*(cols-1));
 
+
+				if(col>=cols||row<0||col<0)
+				{
+					std::println("Out of bounds: ringIndex={}, row={}, col={}, rows={}, cols={}",idxr,row,col,rows,cols);
+					continue; // out of bounds, skip
+				}
 				row=std::clamp(row,0,rows-1);
 				col=std::clamp(col,0,cols-1);
 				col=cols-col;// flip the column index to match the orientation of the ring image
@@ -450,7 +458,7 @@ extern "C"
 		std::string dir; 
 		{
 			std::lock_guard<std::mutex> gd(mtx_chsettings); 
-			std::cout<<chsettings[channelID]["ring"]<<std::endl;
+			//std::cout<<chsettings[channelID]["ring"]<<std::endl;
 			dir=chsettings[channelID]["ring"]["ImageSaveDirectory"];
 			//std::println("saving to {}",dir);
 		} 
@@ -458,7 +466,11 @@ extern "C"
 		//std::cout<<"Current path right now: "<<std::filesystem::current_path()<<"\n";
 		//std::cout<<"Target absolute path: "<<std::filesystem::absolute(dir+"/img.png")<<"\n";
 		if(dir!="")
-			cv::imwrite(dir+std::format("/ch{}_defect.png",static_cast<int>(channelID)),mergedImage); 
+		{
+			cv::imwrite(dir+std::format("/ch{}_defect.png",static_cast<int>(channelID)),mergedImage); //compress
+			//std::vector<int> params = {cv::IMWRITE_PNG_COMPRESSION, 0};
+			//cv::imwrite(dir+std::format("/ch{}_defect.png",static_cast<int>(channelID)),mergedImage,params); 
+		}
 		if(!descriptor)
 		{ 
 			write_log(LogType::Error,"EndChannelProcess","descriptor is null, cannot fill defect info list");
