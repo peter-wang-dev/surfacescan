@@ -69,10 +69,13 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 	//float PixelSize=10; // um/pixel
 	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
                                       FrameWidth, FrameHeight, TotalRings, std::filesystem::absolute(path_output).generic_string());
-	std::println("Ring settings JSON: {}",ringsettings);
+	std::println("Ring settings JSON string: {}",ringsettings);
+	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 100.0, "DSize": 300.0}, {"Intensity": 200.0, "DSize": 1000.0}]})";
+	//DSizeCurveStr+='\n';
+	std::println("DSizeCurve JSON string: {}",DSizeCurveStr);
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json","classify_setting.json",
-                                            "coord_cali_setting.json","DSizeCurve.json");
+                                            "coord_cali_setting.json",DSizeCurveStr.c_str());
 	ASSERT_EQ(res_beginchannel.IsSuccess,true)<<"BeginChannelProcess failed: "<<res_beginchannel.ErrorMessage;
 
 	for(int kr=0;kr<TotalRings;kr++)//index of ring
@@ -92,17 +95,19 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 		{ 
 			int I=static_cast<int>(kr*dI+kf*dIframe); //intensity for this frame
 			std::vector<uint8_t> frameData(RingWidth * FrameHeight, static_cast<uint8_t>(I));
+			//frameData[0]=255;
 			auto res_addblock=AddRingProcessFrame(channel,kr,frameData.data(),RingWidth,FrameHeight,FrameHeight,0,1);
 			ASSERT_EQ(res_addblock.IsSuccess,true)<<"AddRingProcessFrame failed: "<<res_addblock.ErrorMessage;
 		}
 
 		auto res_endring=EndRingProcess(channel,kr,nullptr,nullptr);
-		std::println("EndRingProcess result for ring {}: IsSuccess={}, ErrorMessage=\"{}\"",kr,res_endring.IsSuccess,res_endring.ErrorMessage);
+		//std::println("EndRingProcess result for ring {}: IsSuccess={}, ErrorMessage=\"{}\"",kr,res_endring.IsSuccess,res_endring.ErrorMessage);
 		ASSERT_EQ(res_endring.IsSuccess,true)<<"EndRingProcess failed: "<<res_endring.ErrorMessage;
 	}
 
 	DefectInfoListStruct desc={"desc",0,0};
 	auto res_endchannel=EndChannelProcess(channel,&desc); 
+	ASSERT_EQ(res_endchannel.IsSuccess,true)<<"EndChannelProcess failed: "<<res_endchannel.ErrorMessage;
 	auto numParticles=desc.ParticleCount;
 	auto dataSize=desc.DataSize;
 	std::println("EndChannelProcess result: IsSuccess={}, ErrorMessage=\"{}\", ParticleCount={}, DataSize={}",res_endchannel.IsSuccess,res_endchannel.ErrorMessage,numParticles,dataSize);
@@ -111,10 +116,12 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 	load_from_mmap(desc.Name,(void**)&pData,&loadedSize);
 	ASSERT_NE(pData,nullptr)<<"load_from_mmap failed for name: "<<desc.Name;
 	std::println("Loaded {} bytes from shared memory \"{}\". Expected DataSize={}",loadedSize,desc.Name,dataSize);
-	std::println("First  DefectInfoStruct :");
-	std::println("DefectID={}, ChannelID={}, DefectType={}, BinCode={}",pData->DefectID,static_cast<int>(pData->ChannelID),static_cast<int>(pData->DefectType),pData->BinCode);
-	std::println("CoordR={}, CoordT={}, CoordX={}, CoordY={}",pData->CoordR,pData->CoordT,pData->CoordX,pData->CoordY);
-	ASSERT_EQ(res_endchannel.IsSuccess,true)<<"EndChannelProcess failed: "<<res_endchannel.ErrorMessage;
+	if(numParticles>0)
+	{
+		std::println("First  DefectInfoStruct :");
+		std::println("DefectID={}, ChannelID={}, DefectType={}, BinCode={}",pData->DefectID,static_cast<int>(pData->ChannelID),static_cast<int>(pData->DefectType),pData->BinCode);
+		std::println("CoordR={}, CoordT={}, CoordX={}, CoordY={}",pData->CoordR,pData->CoordT,pData->CoordX,pData->CoordY); 
+	}
 }
 std::map<std::string, std::vector<float>> readRingParaCSV(const std::string& filename) {
     std::map<std::string, std::vector<float>> dataMap;
@@ -245,9 +252,10 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 
 	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
                                       FrameWidth, FrameHeight, TotalRings, path_output);
+	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 230.0, "DSize": 300.0}, {"Intensity": 250.0, "DSize": 1000.0}]})";
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json","classify_setting.json",
-                                            "coord_cali_setting.json","DSizeCurve.json");
+                                            "coord_cali_setting.json",DSizeCurveStr.c_str());
 	ASSERT_EQ(res_beginchannel.IsSuccess,true)<<"BeginChannelProcess failed: "<<res_beginchannel.ErrorMessage;
 
 	for(const auto& ring : rings)//index of ring
@@ -300,9 +308,10 @@ TEST_F(AlgoTest,ChannelProcess_Offline0829)
 	int numRings=11;
 	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
                                       1984, 10000, numRings, path_output);
+	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 230.0, "DSize": 300.0}, {"Intensity": 250.0, "DSize": 1000.0}]})";
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json","classify_setting.json",
-                                            "coord_cali_setting.json","DSizeCurve.json");
+                                            "coord_cali_setting.json",DSizeCurveStr.c_str());
 	ASSERT_EQ(res_beginchannel.IsSuccess,true)<<"BeginChannelProcess failed: "<<res_beginchannel.ErrorMessage;
 	for(int kr=0;kr<numRings;kr++)
 	{
