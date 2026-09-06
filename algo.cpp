@@ -369,7 +369,7 @@ extern "C"
 		//cv::Mat defectmap = rimg.clone(); // For demonstration, copy the ring image to defect map
 		{// Process the ring image to detect defects and populate the defect map
 			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
-			rings[channelID][ringIndex].defectmap=dehazed.clone(); // For demonstration, copy the ring image to defect map
+			rings[channelID][ringIndex].defectmap=dehazed.clone(); // For demonstration, copy the ring image to defect map 
 			rings[channelID][ringIndex].haze=haze.clone();
 			rings[channelID][ringIndex].dehazed=dehazed.clone();
 		}
@@ -492,10 +492,8 @@ extern "C"
 			DSizeCurveJson=chsettings[channelID]["DSizeCurve"]; 
 			//std::println("DSizeCurve={}",DSizeCurveJson.dump(4))	;
 		} 
-		//std::vector<DefectInfoStruct> defects=inspect(fullimage,DSizeCurveJson); 
 		std::vector<DefectInfoStruct> defects=inspect(dehazed,DSizeCurveJson); 
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
-
 
 		//OUTPUT
 		std::string dir; 
