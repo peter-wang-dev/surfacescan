@@ -6,6 +6,7 @@ import std;
 std::string path_output="test_output"; 
 //std::string path_output="C:/Users/cyber/test_output"; 
 std::string path_input="C:/astri2/cnsvision/testinput"; 
+std::string path_userinput;
 //const std::string path_input="./test_output/"; 
 class AlgoTest: public ::testing::Test
 {
@@ -111,6 +112,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 	auto numParticles=desc.ParticleCount;
 	auto dataSize=desc.DataSize;
 	std::println("EndChannelProcess result: IsSuccess={}, ErrorMessage=\"{}\", ParticleCount={}, DataSize={}",res_endchannel.IsSuccess,res_endchannel.ErrorMessage,numParticles,dataSize);
+#ifdef _WIN64
 	DefectInfoStruct* pData=nullptr;
 	size_t loadedSize=0;
 	load_from_mmap(desc.Name,(void**)&pData,&loadedSize);
@@ -119,9 +121,10 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 	if(numParticles>0)
 	{
 		std::println("First  DefectInfoStruct :");
-		std::println("DefectID={}, ChannelID={}, DefectType={}, BinCode={}",pData->DefectID,static_cast<int>(pData->ChannelID),static_cast<int>(pData->DefectType),pData->BinCode);
+		std::println("DefectID={}, ChannelID={}, DefectType={}, BinCode={}",pData->DefectID,static_cast<int>(pData->ChannelID),static_cast<int>(pData->Type),pData->BinCode);
 		std::println("CoordR={}, CoordT={}, CoordX={}, CoordY={}",pData->CoordR,pData->CoordT,pData->CoordX,pData->CoordY); 
 	}
+#endif
 }
 std::map<std::string, std::vector<float>> readRingParaCSV(const std::string& filename) {
     std::map<std::string, std::vector<float>> dataMap;
@@ -199,6 +202,8 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 
 	//std::string path_channel=path_input+"/fullmap/0906";
 	std::string path_channel=path_input+"/cal/200nm/0905/Narrow";
+	if(path_userinput!="")
+		path_channel=path_userinput;
 	auto ringParamMap = readRingParaCSV(path_channel+"/RingsPara.csv");
 	std::vector<float> theta0s=ringParamMap["StartDegree"]; 
 	std::vector<float> theta1s=ringParamMap["EndDegree"];
@@ -295,6 +300,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	auto res_endchannel=EndChannelProcess(channel,nullptr); 
 	std::println("EndChannelProcess result: IsSuccess={}, ErrorMessage=\"{}\"",res_endchannel.IsSuccess,res_endchannel.ErrorMessage);
 	ASSERT_EQ(res_endchannel.IsSuccess,true)<<"EndChannelProcess failed: "<<res_endchannel.ErrorMessage;
+	std::println("Channel test completed using data from directory {}.",path_channel);
 }
 TEST_F(AlgoTest,ChannelProcess_Offline0829)
 { 
@@ -363,5 +369,7 @@ int main(int argc, char **argv)
 	//std::filesystem::current_path(resdir); // Set working directory
 	//std::filesystem::current_path(path_output);
     ::testing::InitGoogleTest(&argc, argv);
+	if(argc>1) 
+		path_userinput=argv[1];
     return RUN_ALL_TESTS();
 }

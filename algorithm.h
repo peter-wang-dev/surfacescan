@@ -12,6 +12,7 @@
 #  define ALGO_API __declspec(dllexport) 
 #else
 #  define ALGO_API __attribute__((visibility("default")))
+#include <cstddef>
 #endif
 
 // ─────────────────────────────────────────────────────────────
@@ -180,7 +181,7 @@ struct DefectInfoStruct
     // ── 标识 ──
     int           DefectID;            // 缺陷唯一ID
     DetectChannel ChannelID;           // 所属探测通道
-    DefectType    DefectType;          // 缺陷类型
+    DefectType    Type;          // 缺陷类型
     int           BinCode;             // 分级编码
 
     // ── 位置 ──

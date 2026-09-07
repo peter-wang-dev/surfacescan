@@ -117,7 +117,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects)
 	cv::Mat defect_annotation;
 	cv::cvtColor(image,defect_annotation,cv::COLOR_GRAY2BGR);
 	int numdraw=0;
-	write_log(LogType::Info,"drawmap",std::format("Total defects to draw: {}",defects.size()).c_str());
+	write_log(LogType::Info,"drawmap",std::format("Total defects {}, only the largest ones will be drawn",defects.size()).c_str());
 	for(const auto& defect:defects)
 	{
 		if(numdraw++>100) break; // limit to the first few defects for drawing
@@ -659,7 +659,7 @@ extern "C"
 		}
 		if(!descriptor)
 		{ 
-			write_log(LogType::Error,"EndChannelProcess","descriptor is null, cannot fill defect info list");
+			write_log(LogType::Error,"EndChannelProcess","Descriptor is null, therefore DefectInfoList will not be filled");
 			return AlgoResult::Success();
 			//return AlgoResult::Failure("descriptor is null");
 		} 
