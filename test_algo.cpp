@@ -197,25 +197,28 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	int FrameWidth = 0, FrameHeight = 0;
 	int idx = 0;
 
-	auto ringParamMap = readRingParaCSV(path_input+"/fullmap/0901/RingsPara.csv");
+	//std::string path_channel=path_input+"/fullmap/0906";
+	std::string path_channel=path_input+"/cal/200nm/0905/Narrow";
+	auto ringParamMap = readRingParaCSV(path_channel+"/RingsPara.csv");
 	std::vector<float> theta0s=ringParamMap["StartDegree"]; 
 	std::vector<float> theta1s=ringParamMap["EndDegree"];
 	std::vector<float> validRows_float=ringParamMap["ValidLines"];
 	std::vector<int> validRows(validRows_float.size());
 	std::transform(validRows_float.begin(), validRows_float.end(), validRows.begin(), [](float f){ return static_cast<int>(f+0.001f); });
 	std::println("Read {} rings from CSV. ValidRows: {}",validRows.size(),validRows[0]);
-	float offset=0.0f;
-	float H=2048;
-	for(size_t k=0;k<validRows.size();k++)
-	{
-		//offset-=360.0f/validRows[k]*2048;
-		offset-=360.0f*H/(validRows[k]+H);
-		theta0s[k]+=offset;
-		theta1s[k]+=offset;
-	}
+	//manual adjustment of theta0s and theta1s if needed
+	//float offset=0.0f;
+	//float H=2048;
+	//for(size_t k=0;k<validRows.size();k++)
+	//{
+	//	//offset-=360.0f/validRows[k]*2048;
+	//	//offset-=360.0f*H/(validRows[k]+H);
+	//	theta0s[k]+=offset;
+	//	theta1s[k]+=offset;
+	//}
 	while (true)
 	{
-		fs::path ring_dir = fs::path(path_input) / "fullmap/0901" / std::format("Ring {}", idx);
+		fs::path ring_dir = fs::path(path_channel) / std::format("Ring {}", idx);
 		if (!fs::exists(ring_dir) || !fs::is_directory(ring_dir))
 			break;
 
@@ -252,7 +255,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 
 	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
                                       FrameWidth, FrameHeight, TotalRings, path_output);
-	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 230.0, "DSize": 300.0}, {"Intensity": 250.0, "DSize": 1000.0}]})";
+	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 5.0, "DSize": 300.0}, {"Intensity": 250.0, "DSize": 1000.0}]})";
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json","classify_setting.json",
                                             "coord_cali_setting.json",DSizeCurveStr.c_str());
@@ -262,10 +265,12 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	{
 		float theta0 = theta0s[ring.kr], theta1 = theta1s[ring.kr]; //triggered start and end angles in degrees
 		//float theta0 = -68.0f, theta1 = theta0 + 360.0f; //triggered start and end angles in degrees
-		std::string coordCaliJson_ring = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggerStart\":{{\"T\":{}}}, \"TriggerEnd\":{{\"T\":{}}}}}", 
+		std::string coordCaliSetting_jsonstr = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggerStart\":{{\"T\":{}}}, \"TriggerEnd\":{{\"T\":{}}}}}", 
                                              ring.ringWidth, ring.ringHeight, theta0, theta1);
-		auto res_beginring = BeginRingProcess(channel, ring.kr, "process_setting.json",
-                                      "haze_cali_setting.json", coordCaliJson_ring.c_str());
+		std::string processSetting_jsonstr=std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"FrameWidth\":{}, \"FrameHeight\":{}}}",
+			ring.ringWidth,ring.ringHeight,FrameWidth,FrameHeight);
+		auto res_beginring = BeginRingProcess(channel, ring.kr, processSetting_jsonstr.c_str(),
+                                      "haze_cali_setting.json", coordCaliSetting_jsonstr.c_str());
 		ASSERT_EQ(res_beginring.IsSuccess,true)<<"BeginRingProcess failed: "<<res_beginring.ErrorMessage; 
 		int rows_remaining = validRows[ring.kr];
 		std::println("Ring {} started with ringWidth={}, ringHeight={}, validRows={}",ring.kr,ring.ringWidth,ring.ringHeight,rows_remaining);
@@ -278,15 +283,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 			std::println("Adding frame from {} ({}x{}) to ring {} with frame_height={} and rows_remaining={}",img_path.string(),img.cols,img.rows,ring.kr,frame_height,rows_remaining);
 			auto res_addblock = AddRingProcessFrame(channel, ring.kr, img.data, img.cols, img.rows, frame_height, 0, 1);
 			cv::Mat temp(img.rows, img.cols, CV_8UC1, img.data);
-			//cv::imwrite("d:/tmp/dst.png", temp);
-			//cv::imwrite("d:/tmp/src.png", img);
-			//cv::imwrite("d:/tmp/diff.png", img-temp);
-			//volatile auto diffsum=cv::sum(img-temp)[0];
-			//if(diffsum>0)
-			//	std::println("Warning: Difference between original and temp image is {}",diffsum);
-			//auto res_addblock = AddRingProcessFrame(channel, ring.kr, img.data, img.cols, img.rows, img.rows, 0, 1);
 			rows_remaining-=frame_height;
-			//if(rows_remaining<=0) break;
 			ASSERT_EQ(res_addblock.IsSuccess,true)<<"AddRingProcessFrame failed: "<<res_addblock.ErrorMessage;
 		}
 

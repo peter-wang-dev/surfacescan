@@ -36,8 +36,120 @@ void write_log(LogType level,const char* source,const char* message)
 	//if(LogType::Info==level) return; 
 	printf("[%d] %s: %s\n",static_cast<int>(level),source,message);
 }
-std::vector<DefectInfoStruct> inspect(cv::Mat fullmap,const json DSizeCurveJson);
-cv::Mat drawmap(cv::Mat fullmap,std::vector<DefectInfoStruct> defects);
+std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& Intensities,const std::vector<double>& DSizes)
+{ 
+    // Output verification
+    std::cout << "Intensities: ";
+    for (double val : Intensities) std::cout << val << " "; 
+    std::cout << "\nDSizes: ";
+    for (double val : DSizes) std::cout << val << " ";
+    std::cout << "\n";
+
+	std::vector<DefectInfoStruct> defects; 
+	for(size_t k=1;k<Intensities.size()&&k<DSizes.size();k++)
+	{
+		auto intensity = Intensities[k];
+		auto dsize = DSizes[k];
+ 
+        // Binary mask: pixels >= intensity become 1, others 0
+        cv::Mat binary = (image >= intensity); // yields 8-bit mask (0 or 255) in OpenCV expression context on most builds
+        // Ensure 8-bit 0/255
+        if (binary.type() != CV_8U)
+            binary.convertTo(binary, CV_8U, 255); 
+
+        // Connected components with stats
+        cv::Mat labels, stats, centroids;
+        int nLabels = cv::connectedComponentsWithStats(binary, labels, stats, centroids, 8, CV_32S);
+		std::println("Intensity threshold: {}, DSize: {}, Found {} regions",intensity,dsize,nLabels-1);
+        if (nLabels <= 1) // no foreground components found
+            continue;
+
+        // Find the largest component (excluding background label 0)
+        int maxLabel = 1;
+        int maxArea = stats.at<int>(1, cv::CC_STAT_AREA);
+        for (int lbl = 1; lbl < nLabels; ++lbl)
+        {
+            int area = stats.at<int>(lbl, cv::CC_STAT_AREA);
+			// Extract bounding box and centroid for the selected component
+			int left=stats.at<int>(lbl,cv::CC_STAT_LEFT);
+			int top=stats.at<int>(lbl,cv::CC_STAT_TOP);
+			int width=stats.at<int>(lbl,cv::CC_STAT_WIDTH);
+			int height=stats.at<int>(lbl,cv::CC_STAT_HEIGHT);
+			cv::Rect bbox(left,top,width,height);
+
+			double cx=centroids.at<double>(lbl,0);
+			double cy=centroids.at<double>(lbl,1);
+			cv::Point2d centroid(cx,cy);
+
+			DefectInfoStruct defect;
+			defect.CoordX=static_cast<float>(cx);
+			defect.CoordY=static_cast<float>(cy);
+			defect.XSize=static_cast<float>(width);
+			defect.YSize=static_cast<float>(height);
+			defect.Area=static_cast<float>(area);
+			defect.BinCode=0;
+
+            if (area > maxArea)
+            {
+                maxArea = area;
+                maxLabel = lbl;
+            }
+			//// Create a clean 8-bit mask for the selected component
+			//cv::Mat compMask=(labels==lbl);
+			//if(compMask.type()!=CV_8U)
+			//	compMask.convertTo(compMask,CV_8U,255);
+			defects.push_back(defect);
+        } 
+        // Mean intensity of the component area on the original fullmap
+        //cv::Scalar meanVal = cv::mean(fullmap, compMask);
+        //double meanIntensity = meanVal[0]; 
+	}
+	defects.push_back(DefectInfoStruct());
+	//sort the defects by area in descending order
+	std::sort(defects.begin(), defects.end(), [](const DefectInfoStruct& a, const DefectInfoStruct& b) {
+		return a.Area > b.Area;
+	});
+	return defects;
+}
+cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects)
+{
+	write_log(LogType::Info,"drawmap","Drawing defect annotations on image");
+	cv::Mat defect_annotation;
+	cv::cvtColor(image,defect_annotation,cv::COLOR_GRAY2BGR);
+	int numdraw=0;
+	write_log(LogType::Info,"drawmap",std::format("Total defects to draw: {}",defects.size()).c_str());
+	for(const auto& defect:defects)
+	{
+		if(numdraw++>100) break; // limit to the first few defects for drawing
+		if(defect.Area<=0) continue; // skip invalid entries
+		cv::Point center(static_cast<int>(defect.CoordX),static_cast<int>(defect.CoordY));
+		cv::Size axes(static_cast<int>(defect.XSize/2)+20,static_cast<int>(defect.YSize/2)+20);
+		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,255),2); // red ellipse
+		std::println("Drawing defect at ({},{}), size=({},{}), area={}, bin={}",center.x,center.y,defect.XSize,defect.YSize,defect.Area,defect.BinCode);
+
+		// place Area and BinCode text at the top of the ellipse, with a small offset to avoid overlap
+		int offsetY = std::max(axes.height, 10);
+		cv::Point textOrg(center.x , center.y - offsetY);
+
+		// clamp text position inside image
+		if(textOrg.x < 2) textOrg.x = 2;
+		if(textOrg.y < 12) textOrg.y = 12; // ensure baseline is visible
+
+		// prepare text strings
+		//std::string text=std::format("Area: {}, BinCode: {}",static_cast<int>(defect.Area+0.5),defect.BinCode);
+		std::string text=std::format("Area={}px",static_cast<int>(defect.Area+0.5));
+
+		int fontFace = cv::FONT_HERSHEY_SIMPLEX;
+		double fontScale = 10;
+		int thickness = 1;
+
+		// draw text with a thin black outline for readability, then white text
+		cv::putText(defect_annotation, text, textOrg, fontFace, fontScale, cv::Scalar(0,0,0), thickness+2, cv::LINE_AA);
+		cv::putText(defect_annotation, text, textOrg, fontFace, fontScale, cv::Scalar(255,255,255), thickness, cv::LINE_AA); 
+	}
+	write_log(LogType::Info,"drawmap","Finished drawing defect annotations");
+	return defect_annotation;
+}
 extern "C"
 {
 	AlgoResult SetLogMessageCallBack(LogMessageCallBack callBackPointer)
@@ -358,22 +470,25 @@ extern "C"
 			rimg = rings[channelID][ringIndex].img.clone(); // or assign without clone if you prefer shared header
 			//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
 		}
+		write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}",static_cast<int>(channelID),ringIndex).c_str());
 		cv::Mat haze(rimg.size(),rimg.type()); //haze: background comes frome scattering of laser by the roughness of the wafer surface
 		{ // Apply a median filter vertically within each column only.
 			constexpr int verticalMedianKernel = 31; // Must be odd and > 1.  
+#pragma omp parallel for
 			for (int x = 0; x < rimg.cols; ++x)
 				cv::medianBlur(rimg.col(x), haze.col(x), verticalMedianKernel);
 		}
 		cv::Mat dehazed=rimg-haze; 
-
-		//cv::Mat defectmap = rimg.clone(); // For demonstration, copy the ring image to defect map
+ 
+		//update the ring structure with the processed images
 		{// Process the ring image to detect defects and populate the defect map
 			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 			rings[channelID][ringIndex].defectmap=dehazed.clone(); // For demonstration, copy the ring image to defect map 
 			rings[channelID][ringIndex].haze=haze.clone();
 			rings[channelID][ringIndex].dehazed=dehazed.clone();
 		}
-		write_log(LogType::Info,"EndRingProcess",std::format("channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
+
+		//save data to disk 
 		std::string dir; 
 		{
 			std::lock_guard<std::mutex> gd(mtx_chsettings); 
@@ -386,6 +501,7 @@ extern "C"
 			cv::imwrite(fn,rimg);
 			auto fn_dehazed=dir+std::format("/ch{}r{}_dehazed.png",static_cast<int>(channelID),ringIndex);
 			cv::imwrite(fn_dehazed,dehazed); 
+			write_log(LogType::Info,"EndRingProcess",std::format("Images saved for channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 		}
 		return AlgoResult::Success();
 	} 
@@ -435,6 +551,7 @@ extern "C"
 		cv::Mat haze(H,W,CV_8UC1,cv::Scalar(0));
 		cv::Mat dehazed(H,W,CV_8UC1,cv::Scalar(0));
 		write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, constructing full map of size={}x{}",static_cast<int>(channelID),fullimage.cols,fullimage.rows).c_str());
+#pragma omp parallel for
 		for(int i=0;i<H;i++)
 		{
 			for(int j=0;j<W;j++)
@@ -486,13 +603,32 @@ extern "C"
 
 		//DEFECT INSPECTION
 		//std::string DSizeCurve;
+		write_log(LogType::Info,"EndChannelProcess",std::format("DSizeCurve for channel {}: {}",static_cast<int>(channelID),chsettings[channelID]["DSizeCurve"].dump(4)).c_str());
 		json DSizeCurveJson;
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
 			DSizeCurveJson=chsettings[channelID]["DSizeCurve"]; 
 			//std::println("DSizeCurve={}",DSizeCurveJson.dump(4))	;
 		} 
-		std::vector<DefectInfoStruct> defects=inspect(dehazed,DSizeCurveJson); 
+		std::vector<double> Intensities,DSizes;
+		// Safety check: ensure "CurvePoints" exists and is an array before iterating
+		if (DSizeCurveJson.contains("CurvePoints") && DSizeCurveJson["CurvePoints"].is_array()) 
+			for(const auto& point:DSizeCurveJson["CurvePoints"])
+			{
+
+				if (point.contains("Intensity") && point.contains("DSize")) 
+				{
+					Intensities.push_back(point["Intensity"].get<double>());
+					DSizes.push_back(point["DSize"].get<double>());
+				}
+				else
+				{
+					write_log(LogType::Warning,"EndChannelProcess","DSizeCurveJson does not contain 'CurvePoints' or it is not an array. Using default values."); 
+					Intensities={230,250};
+					DSizes={200,300};
+				}
+			}
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes); 
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 
 		//OUTPUT
@@ -506,16 +642,20 @@ extern "C"
 
 		//std::cout<<"Current path right now: "<<std::filesystem::current_path()<<"\n";
 		//std::cout<<"Target absolute path: "<<std::filesystem::absolute(dir+"/img.png")<<"\n";
-		write_log(LogType::Info,"EndChannelProcess","Saving to files");
+		write_log(LogType::Info,"EndChannelProcess",std::format("Saving images to directory: {}",dir).c_str());
 		if(dir!="")
 		{
-			cv::Mat defect_annotation=drawmap(dehazed,defects);
-			cv::imwrite(dir+std::format("/ch{}_annotated(partial).png",static_cast<int>(channelID)),defect_annotation); 
+			write_log(LogType::Info,"EndChannelProcess","Saving fullmap");
 			cv::imwrite(dir+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage);
+			write_log(LogType::Info,"EndChannelProcess","Saving haze map");
 			cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
+			write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
 			cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
-			//std::vector<int> params = {cv::IMWRITE_PNG_COMPRESSION, 0};
-			//cv::imwrite(dir+std::format("/ch{}_defect.png",static_cast<int>(channelID)),fullimage,params); 
+			write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
+			cv::Mat defect_annotation=drawmap(dehazed,defects);
+			write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
+			cv::imwrite(dir+std::format("/ch{}_annotated(partial).png",static_cast<int>(channelID)),defect_annotation); 
+			write_log(LogType::Info,"EndChannelProcess","Finished saving images");
 		}
 		if(!descriptor)
 		{ 
@@ -523,138 +663,14 @@ extern "C"
 			return AlgoResult::Success();
 			//return AlgoResult::Failure("descriptor is null");
 		} 
+		write_log(LogType::Info,"EndChannelProcess","Preparing output data structures");
 		size_t numDefects=defects.size(); // For demonstration, we will fill in some dummy defect info 
+		write_log(LogType::Info,"EndChannelProcess",std::format("Number of defects: {}", numDefects).c_str());
 		descriptor->ParticleCount=static_cast<int>(numDefects);
 		descriptor->DataSize=static_cast<int>(numDefects*sizeof(DefectInfoStruct));
+		write_log(LogType::Info,"EndChannelProcess","Saving mmap");
 		save_to_mmap(descriptor->Name,(void*)defects.data(),numDefects*sizeof(DefectInfoStruct));
+		write_log(LogType::Info,"EndChannelProcess","Finished saving mmap");
 		return AlgoResult::Success();
 	}
-}
-std::vector<DefectInfoStruct> inspect(cv::Mat image,const json DSizeCurveJson)
-{ 
-	//PARAMETER EXTRACTION
-    std::vector<double> Intensities;
-    std::vector<double> DSizes;
-
-    // Safety check: ensure "CurvePoints" exists and is an array before iterating
-    if (DSizeCurveJson.contains("CurvePoints") && DSizeCurveJson["CurvePoints"].is_array()) 
-	{ // Walk through the array
-        for (const auto& point : DSizeCurveJson["CurvePoints"]) 
-		{ // Extract and cast the values, pushing them to their respective vectors
-            if (point.contains("Intensity") && point.contains("DSize")) 
-			{
-                Intensities.push_back(point["Intensity"].get<double>());
-                DSizes.push_back(point["DSize"].get<double>());
-            }
-        }
-    }
-	else
-	{
-		write_log(LogType::Error,"inspect","DSizeCurveJson does not contain 'CurvePoints' or it is not an array.");
-		return std::vector<DefectInfoStruct>(); // Return an empty vector if the structure is not as expected
-	} 
-    // Output verification
-    std::cout << "Intensities: ";
-    for (double val : Intensities) std::cout << val << " "; 
-    std::cout << "\nDSizes: ";
-    for (double val : DSizes) std::cout << val << " ";
-    std::cout << "\n";
-
-	std::vector<DefectInfoStruct> defects; 
-	for(size_t k=1;k<Intensities.size()&&k<DSizes.size();k++)
-	{
-		auto intensity = Intensities[k];
-		auto dsize = DSizes[k];
- 
-        // Binary mask: pixels >= intensity become 1, others 0
-        cv::Mat binary = (image >= intensity); // yields 8-bit mask (0 or 255) in OpenCV expression context on most builds
-        // Ensure 8-bit 0/255
-        if (binary.type() != CV_8U)
-            binary.convertTo(binary, CV_8U, 255); 
-
-        // Connected components with stats
-        cv::Mat labels, stats, centroids;
-        int nLabels = cv::connectedComponentsWithStats(binary, labels, stats, centroids, 8, CV_32S);
-		std::println("Intensity threshold: {}, DSize: {}, Found {} regions",intensity,dsize,nLabels-1);
-        if (nLabels <= 1) // no foreground components found
-            continue;
-
-        // Find the largest component (excluding background label 0)
-        int maxLabel = 1;
-        int maxArea = stats.at<int>(1, cv::CC_STAT_AREA);
-        for (int lbl = 1; lbl < nLabels; ++lbl)
-        {
-            int area = stats.at<int>(lbl, cv::CC_STAT_AREA);
-			// Extract bounding box and centroid for the selected component
-			int left=stats.at<int>(lbl,cv::CC_STAT_LEFT);
-			int top=stats.at<int>(lbl,cv::CC_STAT_TOP);
-			int width=stats.at<int>(lbl,cv::CC_STAT_WIDTH);
-			int height=stats.at<int>(lbl,cv::CC_STAT_HEIGHT);
-			cv::Rect bbox(left,top,width,height);
-
-			double cx=centroids.at<double>(lbl,0);
-			double cy=centroids.at<double>(lbl,1);
-			cv::Point2d centroid(cx,cy);
-
-			DefectInfoStruct defect;
-			defect.CoordX=static_cast<float>(cx);
-			defect.CoordY=static_cast<float>(cy);
-			defect.XSize=static_cast<float>(width);
-			defect.YSize=static_cast<float>(height);
-			defect.Area=static_cast<float>(area);
-			defect.BinCode=static_cast<int>(k+1); // bin index
-
-            if (area > maxArea)
-            {
-                maxArea = area;
-                maxLabel = lbl;
-            }
-			//// Create a clean 8-bit mask for the selected component
-			//cv::Mat compMask=(labels==lbl);
-			//if(compMask.type()!=CV_8U)
-			//	compMask.convertTo(compMask,CV_8U,255);
-			defects.push_back(defect);
-        } 
-        // Mean intensity of the component area on the original fullmap
-        //cv::Scalar meanVal = cv::mean(fullmap, compMask);
-        //double meanIntensity = meanVal[0]; 
-
-	}
-	defects.push_back(DefectInfoStruct());
-	return defects;
-}
-cv::Mat drawmap(cv::Mat image,std::vector<DefectInfoStruct> defects)
-{
-	cv::Mat defect_annotation;
-	cv::cvtColor(image,defect_annotation,cv::COLOR_GRAY2BGR);
-	int numdraw=0;
-	for(const auto& defect:defects)
-	{
-		if(numdraw++>100) break; // limit to the first few defects for drawing
-		if(defect.Area<=0) continue; // skip invalid entries
-		cv::Point center(static_cast<int>(defect.CoordX),static_cast<int>(defect.CoordY));
-		cv::Size axes(static_cast<int>(defect.XSize/2)+5,static_cast<int>(defect.YSize/2)+5);
-		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,255),2); // red ellipse
-		std::println("Drawing defect at ({},{}), size=({},{}), area={}, bin={}",center.x,center.y,defect.XSize,defect.YSize,defect.Area,defect.BinCode);
-
-		// place Area and BinCode text at the top of the ellipse, with a small offset to avoid overlap
-		int offsetY = std::max(axes.height, 10);
-		cv::Point textOrg(center.x , center.y - offsetY);
-
-		// clamp text position inside image
-		if(textOrg.x < 2) textOrg.x = 2;
-		if(textOrg.y < 12) textOrg.y = 12; // ensure baseline is visible
-
-		// prepare text strings
-		std::string text=std::format("Area: {}, BinCode: {}",static_cast<int>(defect.Area+0.5),defect.BinCode);
-
-		int fontFace = cv::FONT_HERSHEY_SIMPLEX;
-		double fontScale = 1.5;
-		int thickness = 1;
-
-		// draw text with a thin black outline for readability, then white text
-		cv::putText(defect_annotation, text, textOrg, fontFace, fontScale, cv::Scalar(0,0,0), thickness+2, cv::LINE_AA);
-		cv::putText(defect_annotation, text, textOrg, fontFace, fontScale, cv::Scalar(255,255,255), thickness, cv::LINE_AA); 
-	}
-	return defect_annotation;
 }
