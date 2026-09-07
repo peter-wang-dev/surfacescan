@@ -185,15 +185,15 @@ struct DefectInfoStruct
     int           BinCode;             // 分级编码
 
     // ── 位置 ──
-    float CoordR;                      // 中心点R坐标（mm）
-    float CoordT;                      // 中心点Theta坐标（度）
-    float CoordX;                      // 中心点X坐标（mm）
-    float CoordY;                      // 中心点Y坐标（mm）
+    float CoordR;                      // 中心点R坐标（um）
+    float CoordT;                      // 中心点Theta坐标（degree）
+    float CoordX;                      // 中心点X坐标（um）
+    float CoordY;                      // 中心点Y坐标（um）
 
     // ── 尺寸 ──
-    float XSize;                       // 缺陷X方向尺寸（mm）
-    float YSize;                       // 缺陷Y方向尺寸（mm）
-    float Area;                        // 缺陷面积（mm²）
+    float XSize;                       // 缺陷X方向尺寸（um）
+    float YSize;                       // 缺陷Y方向尺寸（um）
+    float Area;                        // 缺陷面积（um²）
 
     // ── 质量 ──
     float DSize;                       // 缺陷DSize值
@@ -202,7 +202,7 @@ struct DefectInfoStruct
     float SumSNR;                      // SNR和值
 
     // ── 标定 ──
-    float PixelSize;                   // 像素尺寸（mm/pixel）
+    float PixelSize;                   // 像素尺寸（um/pixel）
     float SpaceResolution;             // 空间分辨率
 
     // ── 数据指针（mmap内偏移/计数）──
@@ -229,7 +229,7 @@ enum class LogType : int
     All   = 6
 };
 
-typedef void(__stdcall *LogMessageCallBack)(LogType logType, const char* source, const char* message);
+typedef void(*LogMessageCallBack)(LogType logType, const char* source, const char* message);
 
 // ─────────────────────────────────────────────────────────────
 // 导出函数声明

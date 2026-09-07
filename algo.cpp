@@ -7,6 +7,7 @@ using json = nlohmann::json;
 
 const float twopi=2.0f*static_cast<float>(CV_PI);
 const double ppmm_prealign=208.4; // pixels per mm for prealign images, used to convert wafer size in mm to pixels
+const float pixelsize=4.832f; // in micrometers
 static LogMessageCallBack g_logCallback=nullptr; 
 ContourCalcParameter param_contour;
 std::vector <cv::Mat> centerCalculationImages;
@@ -81,12 +82,23 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
 			double cy=centroids.at<double>(lbl,1);
 			cv::Point2d centroid(cx,cy);
 
-			DefectInfoStruct defect;
-			defect.CoordX=static_cast<float>(cx);
-			defect.CoordY=static_cast<float>(cy);
-			defect.XSize=static_cast<float>(width);
-			defect.YSize=static_cast<float>(height);
-			defect.Area=static_cast<float>(area);
+			DefectInfoStruct defect{0};
+			defect.CoordX=static_cast<float>((cx-binary.cols/2)*pixelsize);
+			defect.CoordY=static_cast<float>((cy-binary.rows/2)*pixelsize);
+			defect.CoordR=static_cast<float>(std::sqrt(defect.CoordX*defect.CoordX+defect.CoordY*defect.CoordY));	
+			defect.CoordT=static_cast<float>(std::atan2(defect.CoordY,defect.CoordX)*180.0f/3.14159265f); // in degrees
+			defect.XSize=static_cast<float>(width)*pixelsize;
+			defect.YSize=static_cast<float>(height)*pixelsize;
+			defect.Area=pixelsize*pixelsize*area;
+			defect.DSize=static_cast<float>(dsize);
+			defect.MaxDSize=static_cast<float>(dsize);
+			defect.SNR=1;//todo
+			defect.SumSNR=1;//todo
+			defect.SpaceResolution=1.0f;//todo
+			defect.RawPixelsOffset=0;
+			defect.RawPixelsCount=area;
+			defect.OutlinePointsOffset=0;
+			defect.OutlinePointsCount=0;
 			defect.BinCode=0;
 
             if (area > maxArea)
@@ -104,7 +116,6 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
         //cv::Scalar meanVal = cv::mean(fullmap, compMask);
         //double meanIntensity = meanVal[0]; 
 	}
-	defects.push_back(DefectInfoStruct());
 	//sort the defects by area in descending order
 	std::sort(defects.begin(), defects.end(), [](const DefectInfoStruct& a, const DefectInfoStruct& b) {
 		return a.Area > b.Area;
@@ -122,10 +133,10 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects)
 	{
 		if(numdraw++>100) break; // limit to the first few defects for drawing
 		if(defect.Area<=0) continue; // skip invalid entries
-		cv::Point center(static_cast<int>(defect.CoordX),static_cast<int>(defect.CoordY));
-		cv::Size axes(static_cast<int>(defect.XSize/2)+20,static_cast<int>(defect.YSize/2)+20);
+		cv::Point center(static_cast<int>(defect.CoordX/pixelsize+image.cols/2),static_cast<int>(defect.CoordY/pixelsize+image.rows/2));
+		cv::Size axes(static_cast<int>(defect.XSize/2/pixelsize)+20,static_cast<int>(defect.YSize/2/pixelsize)+20);
 		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,255),2); // red ellipse
-		std::println("Drawing defect at ({},{}), size=({},{}), area={}, bin={}",center.x,center.y,defect.XSize,defect.YSize,defect.Area,defect.BinCode);
+		std::println("Drawing defect at ({},{}), size({},{}), area={}, bin={}",center.x,center.y,defect.XSize,defect.YSize,defect.Area,defect.BinCode);
 
 		// place Area and BinCode text at the top of the ellipse, with a small offset to avoid overlap
 		int offsetY = std::max(axes.height, 10);
@@ -137,7 +148,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects)
 
 		// prepare text strings
 		//std::string text=std::format("Area: {}, BinCode: {}",static_cast<int>(defect.Area+0.5),defect.BinCode);
-		std::string text=std::format("Area={}px",static_cast<int>(defect.Area+0.5));
+		std::string text=std::format("Area={}px",defect.RawPixelsCount);
 
 		int fontFace = cv::FONT_HERSHEY_SIMPLEX;
 		double fontScale = 10;
@@ -651,10 +662,12 @@ extern "C"
 			cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
 			write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
 			cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
+
 			write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
 			cv::Mat defect_annotation=drawmap(dehazed,defects);
 			write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
 			cv::imwrite(dir+std::format("/ch{}_annotated(partial).png",static_cast<int>(channelID)),defect_annotation); 
+
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");
 		}
 		if(!descriptor)

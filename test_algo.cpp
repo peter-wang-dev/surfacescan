@@ -260,7 +260,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 
 	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
                                       FrameWidth, FrameHeight, TotalRings, path_output);
-	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 5.0, "DSize": 300.0}, {"Intensity": 250.0, "DSize": 1000.0}]})";
+	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 20.0, "DSize": 300.0}, {"Intensity": 250.0, "DSize": 1000.0}]})";
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json","classify_setting.json",
                                             "coord_cali_setting.json",DSizeCurveStr.c_str());
