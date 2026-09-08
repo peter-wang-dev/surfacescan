@@ -7,7 +7,6 @@ using json = nlohmann::json;
 
 const float twopi=2.0f*static_cast<float>(CV_PI);
 const double ppmm_prealign=208.4; // pixels per mm for prealign images, used to convert wafer size in mm to pixels
-const float pixelsize=4.832f; // in micrometers
 static LogMessageCallBack g_logCallback=nullptr; 
 ContourCalcParameter param_contour;
 std::vector <cv::Mat> centerCalculationImages;
@@ -37,7 +36,7 @@ void write_log(LogType level,const char* source,const char* message)
 	//if(LogType::Info==level) return; 
 	printf("[%d] %s: %s\n",static_cast<int>(level),source,message);
 }
-std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& Intensities,const std::vector<double>& DSizes)
+std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize)
 { 
     // Output verification
     std::cout << "Intensities: ";
@@ -45,7 +44,7 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
     std::cout << "\nDSizes: ";
     for (double val : DSizes) std::cout << val << " ";
     std::cout << "\n";
-
+ 
 	std::vector<DefectInfoStruct> defects; 
 	for(size_t k=1;k<Intensities.size()&&k<DSizes.size();k++)
 	{
@@ -106,6 +105,7 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
                 maxArea = area;
                 maxLabel = lbl;
             }
+			if(defect.CoordR>90000) continue;
 			//// Create a clean 8-bit mask for the selected component
 			//cv::Mat compMask=(labels==lbl);
 			//if(compMask.type()!=CV_8U)
@@ -122,7 +122,7 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
 	});
 	return defects;
 }
-cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects)
+cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const float pixelsize)
 {
 	write_log(LogType::Info,"drawmap","Drawing defect annotations on image");
 	cv::Mat defect_annotation;
@@ -136,7 +136,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects)
 		cv::Point center(static_cast<int>(defect.CoordX/pixelsize+image.cols/2),static_cast<int>(defect.CoordY/pixelsize+image.rows/2));
 		cv::Size axes(static_cast<int>(defect.XSize/2/pixelsize)+20,static_cast<int>(defect.YSize/2/pixelsize)+20);
 		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,255),2); // red ellipse
-		std::println("Drawing defect at ({},{}), size({},{}), area={}, bin={}",center.x,center.y,defect.XSize,defect.YSize,defect.Area,defect.BinCode);
+		std::println("Drawing defect at ({},{})px. R={}um, T={}deg, sizes=({},{})um, area={}px({}um^2), bin={}",center.x,center.y,defect.CoordR,defect.CoordT,defect.XSize,defect.YSize,defect.RawPixelsCount,defect.Area,defect.BinCode);
 
 		// place Area and BinCode text at the top of the ellipse, with a small offset to avoid overlap
 		int offsetY = std::max(axes.height, 10);
@@ -405,17 +405,19 @@ extern "C"
 	}
  
 	ALGO_API AlgoResult BeginChannelProcess(DetectChannel channelID,
-		const char* ringSetting,const char* clusterSetting,const char* classifySetting,
+		const char* ring,const char* cluster,const char* classification,
 		const char* coordCaliSetting,const char* DSizeCurve)
 	{
-		(void)clusterSetting,(void)classifySetting; (void)coordCaliSetting; (void)DSizeCurve;
+		(void)cluster, (void)coordCaliSetting; 
 		std::lock_guard<std::mutex> lock(mtx_chsettings);
-		chsettings[channelID]["ring"]=json::parse(ringSetting); 
+		chsettings[channelID]["ring"]=json::parse(ring); 
+		chsettings[channelID]["classification"]=json::parse(classification); 
 		chsettings[channelID]["DSizeCurve"]=json::parse(DSizeCurve); 
 		std::lock_guard<std::mutex> lock_imgs(mtx_rings); 
 		rings[channelID]=std::vector<Ring>(chsettings[channelID]["ring"]["TotalRings"]);
 		//std::println("BeginChannelProcess: channelID={}, ringSetting={}",static_cast<int>(channelID),ringSetting);
-		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, ringSetting={}",static_cast<int>(channelID),ringSetting).c_str());
+		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, ring={}",static_cast<int>(channelID),ring).c_str());
+		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, classifcation={}",static_cast<int>(channelID),classification).c_str());
 		return AlgoResult::Success();
 	}
 	ALGO_API AlgoResult BeginRingProcess(DetectChannel channelID,int ringIndex,
@@ -519,7 +521,7 @@ extern "C"
 
 	ALGO_API AlgoResult EndChannelProcess(DetectChannel channelID,DefectInfoListStruct* descriptor)
 	{ 
-		//PARAMETER EXTRACTION
+		//PARAMETER EXTRACTION 
 		std::vector<Ring> rings_copy;
 		std::vector<int> ringWidths;
 		{
@@ -541,16 +543,24 @@ extern "C"
 				ringEnd[i] = ringStart[i+1];
 				ringStart[i]=ringEnd[i]+ringWidths[i];
 			} 
-		}
-
-		int W=2*std::accumulate(ringWidths.begin(),ringWidths.end(),0);
-		int H=W;
+		} 
+		const int W=2*std::accumulate(ringWidths.begin(),ringWidths.end(),0);
+		const int H=W;
+		float pixelsize;
 		int N=0;// number of rings
+		try
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
 			//float pixelSize=chsettings[channelID]["PixelSize"];
 			N=chsettings[channelID]["ring"]["TotalRings"]; 
+			pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
 			//float Wr=chsettings[channelID]["ring"]["RingWidth"];
+		}
+		catch(std::exception& e)
+		{
+			auto msg=std::format("Exception in extracting json paramters: {}",e.what());
+			write_log(LogType::Error,"EndChannelProcess",msg.c_str());
+			return AlgoResult::Failure(msg.c_str());
 		}
 
 		//FULL MAP CONSTRUCTION
@@ -639,7 +649,7 @@ extern "C"
 					DSizes={200,300};
 				}
 			}
-		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes); 
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize); 
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 
 		//OUTPUT
@@ -664,7 +674,7 @@ extern "C"
 			cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
 
 			write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
-			cv::Mat defect_annotation=drawmap(dehazed,defects);
+			cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
 			write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
 			cv::imwrite(dir+std::format("/ch{}_annotated(partial).png",static_cast<int>(channelID)),defect_annotation); 
 

@@ -200,14 +200,14 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	int FrameWidth = 0, FrameHeight = 0;
 	int idx = 0;
 
-	//std::string path_channel=path_input+"/fullmap/0906";
 	std::string path_channel=path_input+"/cal/200nm/0905/Narrow";
 	if(path_userinput!="")
 		path_channel=path_userinput;
 	auto ringParamMap = readRingParaCSV(path_channel+"/RingsPara.csv");
-	std::vector<float> theta0s=ringParamMap["StartDegree"]; 
-	std::vector<float> theta1s=ringParamMap["EndDegree"];
-	std::vector<float> validRows_float=ringParamMap["ValidLines"];
+	const std::vector<float> theta0s=ringParamMap["StartDegree"]; 
+	const std::vector<float> theta1s=ringParamMap["EndDegree"];
+	const std::vector<float> validRows_float=ringParamMap["ValidLines"];
+	const float pixelsize=ringParamMap["PixelSizeUm"][0];
 	std::vector<int> validRows(validRows_float.size());
 	std::transform(validRows_float.begin(), validRows_float.end(), validRows.begin(), [](float f){ return static_cast<int>(f+0.001f); });
 	std::println("Read {} rings from CSV. ValidRows: {}",validRows.size(),validRows[0]);
@@ -260,9 +260,10 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 
 	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
                                       FrameWidth, FrameHeight, TotalRings, path_output);
-	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 20.0, "DSize": 300.0}, {"Intensity": 250.0, "DSize": 1000.0}]})";
+	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 5.0, "DSize": 200.0}, {"Intensity": 250.0, "DSize": 1000.0}]})"; 
+	std::string classifySettingStr=std::format(R"({{"PixelSize": {}}})", pixelsize);
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
-                                            "cluster_setting.json","classify_setting.json",
+                                            "cluster_setting.json",classifySettingStr.c_str(),
                                             "coord_cali_setting.json",DSizeCurveStr.c_str());
 	ASSERT_EQ(res_beginchannel.IsSuccess,true)<<"BeginChannelProcess failed: "<<res_beginchannel.ErrorMessage;
 

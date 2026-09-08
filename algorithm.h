@@ -281,19 +281,19 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 
 /// <summary>
 /// 开始处理一个检测通道。
-/// ringSetting: {
+/// ring: {
 ///     "FrameWidth": 1024,              // int: 单帧宽度（像素）
 ///     "FrameHeight": 256,              // int: 单帧高度（像素）
 ///     "TotalRings": 10,                // int: 总圈数
 ///     "IntensityCalibration": "Haze",   // string: 光强校准策略 None|Haze|SelfHaze|RefHaze
 ///     "ImageSaveDirectory": ""
 /// }
-/// clusterSetting: {
+/// cluster: {
 ///     "WaferRadius": float,            // 晶圆半径mm
 ///     "ClusterSearchRadius": float,    // 聚类搜索半径um（在此半径内的点被归为同一聚类）
 ///     "ClusterMinPixelCount": int      // 聚类最小像素点数（少于此数的聚类被丢弃）
 /// }
-/// classifySetting: {
+/// classification: {
 ///     "PixelSize": float,              // 像素尺寸um
 ///     "SpaceResolution": float,        // 空间分辨率（um/pixel，影响缺陷尺寸计算）
 ///     "MinDefectSize": float,          // 最小缺陷尺寸（um）
@@ -320,7 +320,7 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 /// }
 /// </summary>
 ALGO_API AlgoResult BeginChannelProcess(DetectChannel channelID,
-    const char* ringSetting, const char* clusterSetting, const char* classifySetting,
+    const char* ring, const char* cluster, const char* classification,
     const char* coordCaliSetting, const char* DSizeCurve);
 
 /// <summary>
