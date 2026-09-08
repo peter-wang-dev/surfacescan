@@ -286,7 +286,8 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 ///     "FrameHeight": 256,              // int: 单帧高度（像素）
 ///     "TotalRings": 10,                // int: 总圈数
 ///     "IntensityCalibration": "Haze",   // string: 光强校准策略 None|Haze|SelfHaze|RefHaze
-///     "ImageSaveDirectory": ""
+///     "ImageSaveDirectory": "",
+///     "DebugOutput": false             //bool: whether to save intermediate results for debugging
 /// }
 /// cluster: {
 ///     "WaferRadius": float,            // 晶圆半径mm

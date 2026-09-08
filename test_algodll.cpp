@@ -273,9 +273,9 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	ASSERT_GT(FrameWidth, 0) << "Could not determine FrameWidth.";
 	ASSERT_GT(FrameHeight, 0) << "Could not determine FrameHeight.";
 
-	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
+	std::string ringsettings = std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},  "ImageSaveDirectory":"{}", "DebugOutput":true}})",
                                       FrameWidth, FrameHeight, TotalRings, path_output);
-	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 5.0, "DSize": 200.0}, {"Intensity": 250.0, "DSize": 1000.0}]})"; 
+	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 13.0, "DSize": 200.0}, {"Intensity": 250.0, "DSize": 1000.0}]})"; 
 	std::string classifySettingStr=std::format(R"({{"PixelSize": {}}})", pixelsize);
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json",classifySettingStr.c_str(),

@@ -109,7 +109,7 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
                 maxArea = area;
                 maxLabel = lbl;
             }
-			if(defect.CoordR>90000) continue;
+		//	if(defect.CoordR>90000) continue;
 			//// Create a clean 8-bit mask for the selected component
 			//cv::Mat compMask=(labels==lbl);
 			//if(compMask.type()!=CV_8U)
@@ -133,14 +133,15 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 	cv::cvtColor(image,defect_annotation,cv::COLOR_GRAY2BGR);
 	int numdraw=0;
 	write_log(LogType::Info,"drawmap",std::format("Total defects {}, only the largest ones will be drawn",defects.size()).c_str());
+	std::ofstream defect_log("defect_log.txt");
 	for(const auto& defect:defects)
 	{
-		if(numdraw++>100) break; // limit to the first few defects for drawing
+		//if(numdraw++>500) break; // limit to the first few defects for drawing
 		if(defect.Area<=0) continue; // skip invalid entries
 		cv::Point center(static_cast<int>(defect.CoordX/pixelsize+image.cols/2),static_cast<int>(defect.CoordY/pixelsize+image.rows/2));
 		cv::Size axes(static_cast<int>(defect.XSize/2/pixelsize)+20,static_cast<int>(defect.YSize/2/pixelsize)+20);
 		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,255),2); // red ellipse
-		std::println("Drawing defect at ({},{})px. R={}um, T={}deg, sizes=({},{})um, area={}px({}um^2), bin={}",center.x,center.y,defect.CoordR,defect.CoordT,defect.XSize,defect.YSize,defect.RawPixelsCount,defect.Area,defect.BinCode);
+		defect_log<<std::format("Drawing defect at ({},{})px. R={}um, T={}deg, sizes=({},{})um, area={}px({}um^2), bin={}\n",center.x,center.y,defect.CoordR,defect.CoordT,defect.XSize,defect.YSize,defect.RawPixelsCount,defect.Area,defect.BinCode);
 
 		// place Area and BinCode text at the top of the ellipse, with a small offset to avoid overlap
 		int offsetY = std::max(axes.height, 10);
@@ -152,10 +153,10 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 
 		// prepare text strings
 		//std::string text=std::format("Area: {}, BinCode: {}",static_cast<int>(defect.Area+0.5),defect.BinCode);
-		std::string text=std::format("Area={}px",defect.RawPixelsCount);
+		std::string text=std::format("{}",defect.RawPixelsCount);
 
 		int fontFace = cv::FONT_HERSHEY_SIMPLEX;
-		double fontScale = 10;
+		double fontScale = 4;
 		int thickness = 1;
 
 		// draw text with a thin black outline for readability, then white text
@@ -488,14 +489,22 @@ extern "C"
 			//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
 		}
 		write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}",static_cast<int>(channelID),ringIndex).c_str());
+		cv::Mat flattened=flatten(rimg); //flatten the image to remove background variations
 		cv::Mat haze(rimg.size(),rimg.type()); //haze: background comes frome scattering of laser by the roughness of the wafer surface
+//		{ // Apply a median filter vertically within each column only.
+//			constexpr int verticalMedianKernel = 31; // Must be odd and > 1.  
+//#pragma omp parallel for
+//			for (int x = 0; x < rimg.cols; ++x)
+//				cv::medianBlur(rimg.col(x), haze.col(x), verticalMedianKernel);
+//		}
+//		cv::Mat dehazed=rimg-haze; 
 		{ // Apply a median filter vertically within each column only.
 			constexpr int verticalMedianKernel = 31; // Must be odd and > 1.  
 #pragma omp parallel for
-			for (int x = 0; x < rimg.cols; ++x)
-				cv::medianBlur(rimg.col(x), haze.col(x), verticalMedianKernel);
+			for (int x = 0; x < flattened.cols; ++x)
+				cv::medianBlur(flattened.col(x), haze.col(x), verticalMedianKernel);
 		}
-		cv::Mat dehazed=rimg-haze; 
+		cv::Mat dehazed=flattened-haze; 
  
 		//update the ring structure with the processed images
 		{// Process the ring image to detect defects and populate the defect map
@@ -552,13 +561,15 @@ extern "C"
 		const int H=W;
 		float pixelsize;
 		int N=0;// number of rings
+		bool DebugOutput=false;
 		try
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
 			//float pixelSize=chsettings[channelID]["PixelSize"];
 			N=chsettings[channelID]["ring"]["TotalRings"]; 
 			pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
-			//float Wr=chsettings[channelID]["ring"]["RingWidth"];
+			if(chsettings[channelID]["ring"].find("DebugOutput")!=chsettings[channelID]["ring"].end())
+				DebugOutput=chsettings[channelID]["ring"]["DebugOutput"];
 		}
 		catch(std::exception& e)
 		{
@@ -674,15 +685,19 @@ extern "C"
 			cv::imwrite(dir+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage);
 			write_log(LogType::Info,"EndChannelProcess","Saving haze map");
 			cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
+			cv::imwrite(dir+std::format("/ch{}_haze_2ev.png",static_cast<int>(channelID)),haze*4);
 			write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
 			cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
 			cv::imwrite(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
 
-			write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
-			cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
-			write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
-			cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation); 
-			cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16); 
+			if(DebugOutput)
+			{
+				write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
+				cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
+				write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
+				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation); 
+				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16); 
+			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");
 		}

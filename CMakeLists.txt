@@ -21,7 +21,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenMP REQUIRED)
 include(GoogleTest)  # for testing 
 
-add_library(algodll SHARED algodll.cpp algorithm.h io.h io.cpp)
+add_library(algodll SHARED algodll.cpp algorithm.h algocore.cpp io.h io.cpp)
 target_link_libraries(algodll PRIVATE ${OpenCV_LIBS} OpenMP::OpenMP_CXX)
 target_link_libraries(algodll PRIVATE nlohmann_json::nlohmann_json)
 

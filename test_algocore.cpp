@@ -15,7 +15,7 @@ TEST(core,flatten)
 	ASSERT_FALSE(img.empty())<<"Failed to load image: "<<imgpath;
 	cv::Mat flattened=flatten(img);
 	ASSERT_FALSE(flattened.empty())<<"Flattening failed.";
-	cv::imwrite(path_output+"/flatten_result.png",flattened*2.0f);
+	cv::imwrite(path_output+"/flatten_result.png",flattened*8.0f);
 }
 TEST(core,dehaze)
 {
