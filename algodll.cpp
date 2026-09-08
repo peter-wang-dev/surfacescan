@@ -1,5 +1,5 @@
 ﻿#include "algorithm.h"
-#include <opencv2/opencv.hpp>
+#include "algocore.h"
 #include <nlohmann/json.hpp>
 #include "io.h"
 import std;
@@ -36,7 +36,8 @@ void write_log(LogType level,const char* source,const char* message)
 	//if(LogType::Info==level) return; 
 	printf("[%d] %s: %s\n",static_cast<int>(level),source,message);
 }
-std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize)
+
+std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,DetectChannel channel)
 { 
     // Output verification
     std::cout << "Intensities: ";
@@ -82,6 +83,9 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
 			cv::Point2d centroid(cx,cy);
 
 			DefectInfoStruct defect{0};
+			defect.DefectID=static_cast<int>(k);
+			defect.ChannelID=channel;
+			defect.Type=DefectType::LPD;
 			defect.CoordX=static_cast<float>((cx-binary.cols/2)*pixelsize);
 			defect.CoordY=static_cast<float>((cy-binary.rows/2)*pixelsize);
 			defect.CoordR=static_cast<float>(std::sqrt(defect.CoordX*defect.CoordX+defect.CoordY*defect.CoordY));	
@@ -649,7 +653,7 @@ extern "C"
 					DSizes={200,300};
 				}
 			}
-		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize); 
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 
 		//OUTPUT
@@ -672,11 +676,13 @@ extern "C"
 			cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
 			write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
 			cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
+			cv::imwrite(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
 
 			write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
 			cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
 			write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
-			cv::imwrite(dir+std::format("/ch{}_annotated(partial).png",static_cast<int>(channelID)),defect_annotation); 
+			cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation); 
+			cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16); 
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");
 		}

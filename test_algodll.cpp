@@ -8,6 +8,21 @@ std::string path_output="test_output";
 std::string path_input="C:/astri2/cnsvision/testinput"; 
 std::string path_userinput;
 //const std::string path_input="./test_output/"; 
+//cv::Mat dehaze(cv::Mat image);
+//TEST(core,dehaze)
+//{
+//	auto datadir=path_input+"cal/200nm/0904 200nm Wide1 800mW/20260904 172742";
+//	int kr=3;//index of ring 
+//	auto ringdir=std::format("{}/Ring {}",datadir,kr);
+//	int ii=0;//index of image
+//	auto imgpath=std::format("{}/{}.bmp",ringdir,kr,ii);
+//
+//	cv::Mat img=cv::imread(path_input+"dehaze_test.png",CV_8UC1);
+//	ASSERT_FALSE(img.empty())<<"Failed to load image: "<<path_input+"dehaze_test.png";
+//	cv::Mat dehazed=dehaze(img);
+//	ASSERT_FALSE(dehazed.empty())<<"Dehazing failed.";
+//	cv::imwrite(path_output+"dehaze_result.png",dehazed*255.0f);
+//}
 class AlgoTest: public ::testing::Test
 {
 protected:

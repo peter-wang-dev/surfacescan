@@ -19,16 +19,19 @@ find_package(OpenCV CONFIG REQUIRED) #
 find_package(GTest CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenMP REQUIRED)
-include(GoogleTest)  # for testing
+include(GoogleTest)  # for testing 
 
+add_library(algodll SHARED algodll.cpp algorithm.h io.h io.cpp)
+target_link_libraries(algodll PRIVATE ${OpenCV_LIBS} OpenMP::OpenMP_CXX)
+target_link_libraries(algodll PRIVATE nlohmann_json::nlohmann_json)
 
-add_library(algo SHARED algo.cpp algorithm.h io.h io.cpp)
-target_link_libraries(algo PRIVATE ${OpenCV_LIBS} OpenMP::OpenMP_CXX)
-target_link_libraries(algo PRIVATE nlohmann_json::nlohmann_json)
-add_executable(test_algo test_algo.cpp io.h io.cpp)
-target_link_libraries(test_algo PRIVATE GTest::gtest_main ${OpenCV_LIBS} algo)
-gtest_discover_tests(test_algo)
+add_executable(test_algodll test_algodll.cpp io.h io.cpp)
+target_link_libraries(test_algodll PRIVATE GTest::gtest_main ${OpenCV_LIBS} algodll)
+gtest_discover_tests(test_algodll)
+add_executable(test_algocore test_algocore.cpp algocore.cpp algocore.h)
+target_link_libraries(test_algocore PRIVATE GTest::gtest_main ${OpenCV_LIBS})
+gtest_discover_tests(test_algocore)
 
 if (WIN32)
-  set_target_properties(algo PROPERTIES PREFIX "" SUFFIX ".dll")
+  set_target_properties(algodll PROPERTIES PREFIX "" SUFFIX ".dll")
 endif()
