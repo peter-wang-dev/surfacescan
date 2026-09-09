@@ -212,13 +212,14 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	};
 	
 	std::vector<RingInfo> rings;
-	int FrameWidth = 0, FrameHeight = 0;
-	int idx = 0;
+	int kr = 0;
 
 	std::string path_channel=path_input+"/cal/200nm/0905/Narrow";
 	if(path_userinput!="")
 		path_channel=path_userinput;
 	auto ringParamMap = readRingParaCSV(path_channel+"/RingsPara.csv");
+	int FrameWidth=static_cast<int>(ringParamMap["FrameWidth"][0]+0.001f);
+	int FrameHeight=static_cast<int>(ringParamMap["FrameHeight"][0]+0.001f);
 	const std::vector<float> theta0s=ringParamMap["StartDegree"]; 
 	const std::vector<float> theta1s=ringParamMap["EndDegree"];
 	const std::vector<float> validRows_float=ringParamMap["ValidLines"];
@@ -236,32 +237,43 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	//	theta0s[k]+=offset;
 	//	theta1s[k]+=offset;
 	//}
-	while (true)
+	bool format_monolithic=true;//every ring has a separate directory with images
+	while(format_monolithic) //every ring is a single image 
+	{ 
+		fs::path img_path=fs::path(path_channel)/std::format("AlgoImages/ch2r{}.png",kr);
+		std::println("Checking ring image: {}",img_path.string());
+		if(!fs::exists(img_path))
+			break;
+		std::println("Found ring image: {}",img_path.string());
+		RingInfo info; 
+		info.kr = kr;
+		info.images.push_back(img_path);
+		info.ringWidth=FrameWidth;
+		info.ringHeight=validRows[info.kr]; // Use the validRows from CSV for ringHeight
+		rings.push_back(info);
+		kr++;
+	}
+	while(!format_monolithic)//every ring has a separate directory with a sequence of images
 	{
-		fs::path ring_dir = fs::path(path_channel) / std::format("Ring {}", idx);
+		fs::path ring_dir = fs::path(path_channel) / std::format("Ring {}", kr);
 		if (!fs::exists(ring_dir) || !fs::is_directory(ring_dir))
 			break;
+		std::println("Found ring directory: {}", ring_dir.string());
 
 		RingInfo info;
-		info.kr = idx;
+		info.kr = kr;
 		auto numImages=std::distance(fs::directory_iterator(ring_dir),fs::directory_iterator{});
 		info.images.reserve(static_cast<size_t>(numImages));
 		for (int i = 0; i < static_cast<int>(numImages); ++i)
 			info.images.emplace_back(ring_dir / std::format("{}.bmp", i));
 
-		if (!info.images.empty())
-		{
-			cv::Mat first_img = cv::imread(info.images[0].string(), CV_8UC1);
-			ASSERT_FALSE(first_img.empty()) << "Failed to load image: " << info.images[0].string();
-
-			if (FrameWidth == 0) FrameWidth = first_img.cols;
-			if (FrameHeight == 0) FrameHeight = first_img.rows;
-			info.ringWidth = first_img.cols;
-			//info.ringHeight = first_img.rows * static_cast<int>(info.images.size());
-			info.ringHeight=validRows[info.kr]; // Use the validRows from CSV for ringHeight
-		}
+		ASSERT_NE(info.images.size(),0u)<<"No images found in ring directory: "<<ring_dir.string();
+		cv::Mat first_img=cv::imread(info.images[0].string(),CV_8UC1);
+		ASSERT_FALSE(first_img.empty())<<"Failed to load image: "<<info.images[0].string();
+		info.ringWidth=first_img.cols;
+		info.ringHeight=validRows[info.kr]; // Use the validRows from CSV for ringHeight
 		rings.push_back(info);
-		idx++;
+		kr++;
 	}
 
 	int TotalRings = static_cast<int>(rings.size());
@@ -275,7 +287,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 
 	std::string ringsettings = std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},  "ImageSaveDirectory":"{}", "DebugOutput":true}})",
                                       FrameWidth, FrameHeight, TotalRings, path_output);
-	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 13.0, "DSize": 200.0}, {"Intensity": 250.0, "DSize": 1000.0}]})"; 
+	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 20.0, "DSize": 200.0}, {"Intensity": 250.0, "DSize": 1000.0}]})"; 
 	std::string classifySettingStr=std::format(R"({{"PixelSize": {}}})", pixelsize);
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json",classifySettingStr.c_str(),
@@ -303,7 +315,6 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 			int frame_height=std::min(img.rows,rows_remaining);
 			std::println("Adding frame from {} ({}x{}) to ring {} with frame_height={} and rows_remaining={}",img_path.string(),img.cols,img.rows,ring.kr,frame_height,rows_remaining);
 			auto res_addblock = AddRingProcessFrame(channel, ring.kr, img.data, img.cols, img.rows, frame_height, 0, 1);
-			cv::Mat temp(img.rows, img.cols, CV_8UC1, img.data);
 			rows_remaining-=frame_height;
 			ASSERT_EQ(res_addblock.IsSuccess,true)<<"AddRingProcessFrame failed: "<<res_addblock.ErrorMessage;
 		}

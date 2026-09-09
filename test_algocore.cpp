@@ -9,13 +9,15 @@ std::string path_userinput;
 TEST(core,flatten)
 { 
 	auto datadir=path_input+"/dehaze";
-	int kr=3;//index of ring 
-	auto imgpath=std::format("{}/ch1r{}.png",datadir,kr); 
-	cv::Mat img=cv::imread(imgpath,CV_8U);
-	ASSERT_FALSE(img.empty())<<"Failed to load image: "<<imgpath;
-	cv::Mat flattened=flatten(img);
-	ASSERT_FALSE(flattened.empty())<<"Flattening failed.";
-	cv::imwrite(path_output+"/flatten_result.png",flattened*8.0f);
+	for(int kr=0; kr<11; ++kr)
+	{//index of ring 
+		auto imgpath=std::format("{}/ch1r{}.png",datadir,kr);
+		cv::Mat img=cv::imread(imgpath,CV_8U);
+		ASSERT_FALSE(img.empty())<<"Failed to load image: "<<imgpath;
+		cv::Mat flattened=flatten(img,std::format("{}/flattenning_{}.txt",path_output,kr));
+		ASSERT_FALSE(flattened.empty())<<"Flattening failed.";
+		cv::imwrite(std::format("{}/flatten_result_{}.png",path_output,kr),flattened*4.0f);
+	}
 }
 TEST(core,dehaze)
 {

@@ -109,7 +109,7 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
                 maxArea = area;
                 maxLabel = lbl;
             }
-		//	if(defect.CoordR>90000) continue;
+			if(defect.CoordR>90000) continue;
 			//// Create a clean 8-bit mask for the selected component
 			//cv::Mat compMask=(labels==lbl);
 			//if(compMask.type()!=CV_8U)
@@ -488,7 +488,7 @@ extern "C"
 			rimg = rings[channelID][ringIndex].img.clone(); // or assign without clone if you prefer shared header
 			//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
 		}
-		write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}",static_cast<int>(channelID),ringIndex).c_str());
+		write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 		cv::Mat flattened=flatten(rimg); //flatten the image to remove background variations
 		cv::Mat haze(rimg.size(),rimg.type()); //haze: background comes frome scattering of laser by the roughness of the wafer surface
 //		{ // Apply a median filter vertically within each column only.
@@ -513,6 +513,7 @@ extern "C"
 			rings[channelID][ringIndex].haze=haze.clone();
 			rings[channelID][ringIndex].dehazed=dehazed.clone();
 		}
+		write_log(LogType::Info,"EndRingProcess",std::format("Dehazing completed for channelID={}, ringIndex={}",static_cast<int>(channelID),ringIndex).c_str());
 
 		//save data to disk 
 		std::string dir; 
@@ -682,21 +683,20 @@ extern "C"
 		if(dir!="")
 		{
 			write_log(LogType::Info,"EndChannelProcess","Saving fullmap");
-			cv::imwrite(dir+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage);
-			write_log(LogType::Info,"EndChannelProcess","Saving haze map");
-			cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
-			cv::imwrite(dir+std::format("/ch{}_haze_2ev.png",static_cast<int>(channelID)),haze*4);
-			write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
-			cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
-			cv::imwrite(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
-
+			cv::imwrite(dir+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage); 
 			if(DebugOutput)
 			{
+				write_log(LogType::Info,"EndChannelProcess","Saving haze map");
+				cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
+				cv::imwrite(dir+std::format("/ch{}_haze_2ev.png",static_cast<int>(channelID)),haze*4);
+				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
+				cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
+				cv::imwrite(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
 				write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
 				cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
-				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation); 
-				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16); 
+				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation);
+				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");
