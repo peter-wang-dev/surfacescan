@@ -21,7 +21,8 @@ TEST(core,flatten)
 }
 TEST(core,dehaze)
 {
-	auto datadir=path_input+"/dehaze";
+	//auto datadir=path_input+"/dehaze";
+	auto datadir="D:/dev/test_output";
 	int kr=3;//index of ring 
 	auto imgpath=std::format("{}/ch1r{}.png",datadir,kr); 
 	cv::Mat img=cv::imread(imgpath,CV_8U);

@@ -7,6 +7,7 @@ std::string path_output="test_output";
 //std::string path_output="C:/Users/cyber/test_output"; 
 std::string path_input="C:/astri2/cnsvision/testinput"; 
 std::string path_userinput;
+double detection_threshold=15.0;
 //const std::string path_input="./test_output/"; 
 //cv::Mat dehaze(cv::Mat image);
 //TEST(core,dehaze)
@@ -227,20 +228,10 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	std::vector<int> validRows(validRows_float.size());
 	std::transform(validRows_float.begin(), validRows_float.end(), validRows.begin(), [](float f){ return static_cast<int>(f+0.001f); });
 	std::println("Read {} rings from CSV. ValidRows: {}",validRows.size(),validRows[0]);
-	//manual adjustment of theta0s and theta1s if needed
-	//float offset=0.0f;
-	//float H=2048;
-	//for(size_t k=0;k<validRows.size();k++)
-	//{
-	//	//offset-=360.0f/validRows[k]*2048;
-	//	//offset-=360.0f*H/(validRows[k]+H);
-	//	theta0s[k]+=offset;
-	//	theta1s[k]+=offset;
-	//}
-	bool format_monolithic=true;//every ring has a separate directory with images
+	bool format_monolithic=false;//every ring has a separate directory with images
 	while(format_monolithic) //every ring is a single image 
 	{ 
-		fs::path img_path=fs::path(path_channel)/std::format("AlgoImages/ch2r{}.png",kr);
+		fs::path img_path=fs::path(path_channel)/std::format("AlgoImages/ch1r{}.png",kr);
 		std::println("Checking ring image: {}",img_path.string());
 		if(!fs::exists(img_path))
 			break;
@@ -287,7 +278,10 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 
 	std::string ringsettings = std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},  "ImageSaveDirectory":"{}", "DebugOutput":true}})",
                                       FrameWidth, FrameHeight, TotalRings, path_output);
-	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 20.0, "DSize": 200.0}, {"Intensity": 250.0, "DSize": 1000.0}]})"; 
+	//std::string DSizeCurveStr=std::format(R"({{"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": {}, "DSize": 200.0}, {"Intensity": 255.0, "DSize": 1000.0}]}})", detection_threshold); 
+	std::string DSizeCurveStr=std::format(
+		R"({{"CurvePoints": [{{"Intensity": 0.0, "DSize": 0.0}}, {{"Intensity": {}, "DSize": 200.0}}, {{"Intensity": 255.0, "DSize": 1000.0}}]}})",
+		detection_threshold);
 	std::string classifySettingStr=std::format(R"({{"PixelSize": {}}})", pixelsize);
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
                                             "cluster_setting.json",classifySettingStr.c_str(),
@@ -398,5 +392,7 @@ int main(int argc, char **argv)
     ::testing::InitGoogleTest(&argc, argv);
 	if(argc>1) 
 		path_userinput=argv[1];
+	if(argc>2) 
+		detection_threshold=std::stod(argv[2]);
     return RUN_ALL_TESTS();
 }

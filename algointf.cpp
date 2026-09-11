@@ -526,8 +526,8 @@ extern "C"
 		{
 			auto fn=dir+std::format("/ch{}r{}.png",static_cast<int>(channelID),ringIndex);
 			cv::imwrite(fn,rimg);
-			auto fn_dehazed=dir+std::format("/ch{}r{}_dehazed.png",static_cast<int>(channelID),ringIndex);
-			cv::imwrite(fn_dehazed,dehazed); 
+			//auto fn_dehazed=dir+std::format("/ch{}r{}_dehazed.png",static_cast<int>(channelID),ringIndex);
+			//cv::imwrite(fn_dehazed,dehazed); 
 			write_log(LogType::Info,"EndRingProcess",std::format("Images saved for channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 		}
 		return AlgoResult::Success();
