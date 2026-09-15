@@ -50,10 +50,13 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
 	for(size_t k=1;k<Intensities.size()&&k<DSizes.size();k++)
 	{
 		auto intensity = Intensities[k];
+		auto intensity_next=4096;
+		if(k+1<Intensities.size())
+			intensity_next=Intensities[k+1];
 		auto dsize = DSizes[k];
  
-        // Binary mask: pixels >= intensity become 1, others 0
-        cv::Mat binary = (image >= intensity); // yields 8-bit mask (0 or 255) in OpenCV expression context on most builds
+        // Binary mask: intensity_cap>pixels >= intensity become 1, others 0
+        cv::Mat binary = (image >= intensity) & (image < intensity_next); // yields 8-bit mask (0 or 255) in OpenCV expression context on most builds
         // Ensure 8-bit 0/255
         if (binary.type() != CV_8U)
             binary.convertTo(binary, CV_8U, 255); 
@@ -94,6 +97,8 @@ std::vector<DefectInfoStruct> inspect(cv::Mat image,const std::vector<double>& I
 			defect.YSize=static_cast<float>(height)*pixelsize;
 			defect.Area=pixelsize*pixelsize*area;
 			defect.DSize=static_cast<float>(dsize);
+			if(area>10)
+				defect.DSize=std::max(width,height)*pixelsize;
 			defect.MaxDSize=static_cast<float>(dsize);
 			defect.SNR=1;//todo
 			defect.SumSNR=1;//todo
@@ -132,7 +137,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 	cv::Mat defect_annotation;
 	cv::cvtColor(image,defect_annotation,cv::COLOR_GRAY2BGR);
 	int numdraw=0;
-	write_log(LogType::Info,"drawmap",std::format("Total defects {}, only the largest ones will be drawn",defects.size()).c_str());
+	write_log(LogType::Info,"drawmap",std::format("Total defects {}",defects.size()).c_str());
 	std::ofstream defect_log("defect_log.txt");
 	for(const auto& defect:defects)
 	{

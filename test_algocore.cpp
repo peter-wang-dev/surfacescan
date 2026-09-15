@@ -8,7 +8,8 @@ std::string path_userinput;
 //const std::string path_input="./test_output/"; 
 TEST(core,flatten)
 { 
-	auto datadir=path_input+"/dehaze";
+	//auto datadir=path_input+"/dehaze";
+	auto datadir="D:/dev/test_output";
 	for(int kr=0; kr<11; ++kr)
 	{//index of ring 
 		auto imgpath=std::format("{}/ch1r{}.png",datadir,kr);
