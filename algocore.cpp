@@ -65,7 +65,8 @@ void estimate_column_intensity_stat_impl(const cv::Mat& image, std::vector<doubl
 }
 
 // Main interface function
-std::vector<double> estimate_column_intensity_stat(cv::Mat image) {
+std::vector<double> estimate_column_intensity_stat(cv::Mat image) 
+{
     if (image.empty()) {
         return {};
     }
@@ -102,24 +103,25 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
 	auto colavg=estimate_column_intensity_stat(image);
 
     // Step 2: Scale vector so max element is 1.0f, and precompute inverse factors
-    double min_val, max_val;
+    double min_val, max_val, mean_val;
 	const auto [min_it, max_it] = std::minmax_element(colavg.begin(), colavg.end());
 	min_val = *min_it;
 	max_val = *max_it;
+	mean_val=std::accumulate(colavg.begin(),colavg.end(),0.0)/colavg.size();
 
     std::vector<double> inv_scales(W, 1.0f);
     std::vector<double> W_elements(W, 0.0f); // Store for debugging
 
-    if (max_val > 0.0) {
-        for (int x = 0; x < W; ++x) {
-            W_elements[x] = colavg[x] / static_cast<double>(max_val); // Calculate scaled W
-            if (colavg[x] > 1e-6) { 
-                inv_scales[x] = static_cast<double>(max_val) / colavg[x];
-            } else {
-                inv_scales[x] = 1.0;
-            }
+	double desired=100.0; // Desired average intensity for the flattened image
+    if (max_val > 0.0)
+        for (int x = 0; x < W; ++x) 
+        {
+            W_elements[x]=colavg[x]/desired;
+            if (colavg[x] > 1e-6) 
+                inv_scales[x] = desired / colavg[x];
+             else 
+                inv_scales[x] = 1.0; 
         }
-    }
 
     // Step 3: Multiply each column by its inverse scale
     cv::Mat result(image.size(), image.type());
@@ -164,17 +166,7 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
         else 
             std::cerr<<"Warning: Could not open "<<debugfilename<<" for writing.\n";
 		//print statistics on out_avg_ptr
-		float sum=0.0f;
-		float min_out=std::numeric_limits<float>::max();
-		float max_out=std::numeric_limits<float>::lowest();
-		for(int x=0; x<W; ++x) {
-			float val=out_avg_ptr[x];
-			sum+=val;
-			if(val<min_out) min_out=val;
-			if(val>max_out) max_out=val;
-		}
-		float mean=sum/W;
-		std::println("Output averages ({}): min={:.4f}, max={:.4f}, mean={:.4f}",debugfilename,min_out,max_out,mean);
+		std::cout<<std::format("Output averages ({}): min={:.4f}, max={:.4f}, mean={:.4f}",debugfilename,min_val,max_val,mean_val)<<std::endl;
     }
 
     // Step 4: Return result

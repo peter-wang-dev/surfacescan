@@ -147,14 +147,15 @@ struct DefectInfoListStruct
 // C# 对应: DefectType (IAlgorithmInterface2.cs)
 // ─────────────────────────────────────────────────────────────
 
-enum class DefectType : int
+enum class DefectType: int
 {
-    NONE    = 0,
-    LPD     = 1,
-    LPDN    = 2,
-    AREA    = 3,
-    SCRATCH = 4,
-    SLIPLINE = 5
+    NONE=0,
+    LPD=1,
+    LPDN=2,
+    AREA=3,
+    SCRATCH=4,
+    SLIPLINE=5,
+    SATURATED=6,
 };
 
 // ─────────────────────────────────────────────────────────────

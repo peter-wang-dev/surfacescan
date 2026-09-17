@@ -280,7 +280,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
                                       FrameWidth, FrameHeight, TotalRings, path_output);
 	//std::string DSizeCurveStr=std::format(R"({{"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": {}, "DSize": 200.0}, {"Intensity": 255.0, "DSize": 1000.0}]}})", detection_threshold); 
 	std::string DSizeCurveStr=std::format(
-		R"({{"CurvePoints": [{{"Intensity": 0.0, "DSize": 0.0}}, {{"Intensity": {}, "DSize": 0.2}}, {{"Intensity": 60.0, "DSize": 1000.0}}]}})",
+		R"({{"CurvePoints": [{{"Intensity": 0.0, "DSize": 0.0}}, {{"Intensity": {}, "DSize": 0.2}}, {{"Intensity": 5000.0, "DSize": 10.0}}]}})",
 		detection_threshold);
 	std::string classifySettingStr=std::format(R"({{"PixelSize": {}}})", pixelsize);
 	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
