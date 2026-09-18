@@ -64,7 +64,7 @@ void estimate_column_intensity_stat_impl(const cv::Mat& image, std::vector<doubl
     }
 }
 
-// Main interface function
+// Main interface function. 
 std::vector<double> estimate_column_intensity_stat(cv::Mat image) 
 {
     if (image.empty()) {
@@ -72,17 +72,19 @@ std::vector<double> estimate_column_intensity_stat(cv::Mat image)
     }
 
     if (image.type() != CV_8UC1 && image.type() != CV_16UC1) {
-        throw std::invalid_argument("Input image must be single-channel 8-bit or 16-bit");
     }
 
     std::vector<double> result(image.cols, 0.0);
 
     // Dispatch to the correct template instantiation based on OpenCV type
-    if (image.type() == CV_8UC1) {
+    if (image.type() == CV_8UC1)
         estimate_column_intensity_stat_impl<uchar>(image, result);
-    } else if (image.type() == CV_16UC1) {
+    else if (image.type() == CV_16UC1)
         estimate_column_intensity_stat_impl<ushort>(image, result);
-    }
+	else if(image.type()==CV_32FC1)
+		estimate_column_intensity_stat_impl<float>(image,result);
+    else 
+        throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
 
     return result;
 }
@@ -92,8 +94,8 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
     if (image.empty()) 
         return image;
     
-    if (image.type() != CV_8UC1 && image.type() != CV_16UC1) 
-        throw std::invalid_argument("Input image must be single-channel 8-bit or 16-bit");
+    if (image.type() != CV_8UC1 && image.type() != CV_16UC1 && image.type() != CV_32FC1) 
+        throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
 
     int W = image.cols;
     int H = image.rows;
