@@ -62,7 +62,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 
 	std::vector<DefectInfoStruct> defects;
 	//auto intensity=Intensities[1]/2+1.0f;
-	const float intensity_threshold=50;
+	const float intensity_threshold=40;
 	//auto intensity_next=4096;
 	//if(Intensities.size()>2)
 	//	intensity_next=Intensities[2];
@@ -75,7 +75,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	if(binary.type()!=CV_8U)
 		binary.convertTo(binary,CV_8U,255);
 	cv::Mat closure;
-	cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(21,21)));
+	cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(11,11)));
  
 	// Connected components with stats
 	cv::Mat labels,stats,centroids;
@@ -172,10 +172,10 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			maxArea=area;
 			maxLabel=lbl;
 		}
-		//if(defect.CoordR>95000) continue;
+		if(defect.CoordR>95000) continue;
 		if(intg<Intensities[1])
 		{
-			std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
+			//std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
 			continue; // skip defects less than threshold the intensity range 
 		}
 		else
@@ -555,11 +555,21 @@ extern "C"
 		auto col_intensity=estimate_column_intensity_stat(rimg);
 		cv::Mat flattened=flatten(rimg); //flatten the image to remove background variations
 		cv::Mat haze(rimg.size(),rimg.type()); //haze: background comes frome scattering of laser by the roughness of the wafer surface
-		{ // Apply a median filter vertically within each column only.
-			constexpr int verticalMedianKernel=31; // Must be odd and > 1.  
+
+		// Minimum filter: each haze pixel is the minimum in its nnbh × nnbh neighborhood.
+		//const int nnbh=31; // neighborhood size for min filter, must be odd and > 1
+		//cv::erode( flattened, haze, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(nnbh, nnbh)), cv::Point(-1, -1), 1, cv::BORDER_REPLICATE);
+		//{ // Apply a median filter vertically within each column only.
+		//	constexpr int verticalMedianKernel=31; // Must be odd and > 1.  
+		//	#pragma omp parallel for
+		//	for(int x=0; x<flattened.cols; ++x)
+		//		cv::medianBlur(flattened.col(x),haze.col(x),verticalMedianKernel);
+		//}
+		{ // Apply a median filter horizontally within each row only.
+			constexpr int horizontalMedianKernel=31; // Must be odd and > 1.  
 			#pragma omp parallel for
-			for(int x=0; x<flattened.cols; ++x)
-				cv::medianBlur(flattened.col(x),haze.col(x),verticalMedianKernel);
+			for(int y=0; y<flattened.rows; ++y)
+				cv::medianBlur(flattened.row(y),haze.row(y),horizontalMedianKernel);
 		}
 		cv::Mat dehazed=flattened-haze;
 		//cv::Mat dehazed;
@@ -756,7 +766,8 @@ extern "C"
 				cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
 				cv::imwrite(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
 				write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
-				cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
+				//cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
+				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
 				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation);
 				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
