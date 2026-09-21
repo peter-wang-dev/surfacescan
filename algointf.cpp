@@ -42,7 +42,7 @@ void write_log(LogType level,const char* source,const char* message)
 
 std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,DetectChannel channel)
 {
-	CV_Assert(image.type() == CV_8UC1);
+	CV_Assert(image.type() == CV_16UC1);
 	// Output verification
 	std::cout<<"Intensities: ";
 	for(double val:Intensities) std::cout<<val<<" ";
@@ -66,7 +66,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	//auto intensity_next=4096;
 	//if(Intensities.size()>2)
 	//	intensity_next=Intensities[2];
-	auto dsize=DSizes[1];
+	//auto dsize=DSizes[1];
 
 	// Binary mask
 	//cv::Mat binary=(image>=intensity);//&(image<intensity_next); // yields 8-bit mask (0 or 255) in OpenCV expression context on most builds
@@ -113,8 +113,8 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		for(int i=top; i<top+height; ++i)
 			for(int j=left; j<left+width; ++j)
 				if(labels.at<int>(i,j)==lbl)
-				//if (labels.at<int>(i, j) == lbl && binary.at<uchar>(i, j) != 0)
-					intg+=image.at<uchar>(i,j);
+				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
+					intg+=image.at<ushort>(i,j);
 
 		//ignore the superficial components that are not part of the binary mask
 		cv::Mat componentMask;
@@ -136,7 +136,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 						//std::println("Pixel ({},{}) intensity {}",j,i,image.at<uchar>(i,j)); 
 						std::println(
 							"inspect channel={}, label={}: integrated intensity {} below 0.1; pixel ({}, {}) intensity {}",
-							static_cast<int>(channel), lbl, intg, j, i, image.at<uchar>(i,j));
+							static_cast<int>(channel), lbl, intg, j, i, image.at<ushort>(i,j));
 		}
 
 		double cx=centroids.at<double>(lbl,0);
@@ -198,7 +198,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 		if(defect.Area<=0) continue; // skip invalid entries
 		cv::Point center(static_cast<int>(defect.CoordX/pixelsize+image.cols/2),static_cast<int>(defect.CoordY/pixelsize+image.rows/2));
 		cv::Size axes(static_cast<int>(defect.XSize/2/pixelsize)+20,static_cast<int>(defect.YSize/2/pixelsize)+20);
-		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,255),2); // red ellipse
+		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,255*256),2); // red ellipse
 		defect_log<<std::format("Drawing defect at ({},{})px. R={}um, T={}deg, sizes=({},{})um, area={}px({}um^2), bin={}\n",center.x,center.y,defect.CoordR,defect.CoordT,defect.XSize,defect.YSize,defect.RawPixelsCount,defect.Area,defect.BinCode);
 
 		// place Area and BinCode text at the top of the ellipse, with a small offset to avoid overlap
@@ -220,7 +220,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 
 		// draw text with a thin black outline for readability, then white text
 		cv::putText(defect_annotation, text, textOrg, fontFace, fontScale, cv::Scalar(0,0,0), thickness+2, cv::LINE_AA);
-		cv::putText(defect_annotation, text, textOrg, fontFace, fontScale, cv::Scalar(255,255,255), thickness, cv::LINE_AA); 
+		cv::putText(defect_annotation, text, textOrg, fontFace, fontScale, cv::Scalar(255,255,255)*256, thickness, cv::LINE_AA); 
 	}
 	write_log(LogType::Info,"drawmap","Finished drawing defect annotations");
 	return defect_annotation;
@@ -500,7 +500,7 @@ extern "C"
 		std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 		// allocate the Ring's image
 		auto& ring=rings[channelID][ringIndex];
-		ring.img = cv::Mat(RingHeight, RingWidth, CV_8UC1);
+		ring.img = cv::Mat(RingHeight, RingWidth, CV_16UC1);
 		ring.cursor = 0;
 		float theta0_angle=coordCaliJson["TriggerStart"]["T"];
 		float theta1_angle=coordCaliJson["TriggerEnd"]["T"];
@@ -523,16 +523,16 @@ extern "C"
 		std::lock_guard<std::mutex> lock_imgs(mtx_rings); 
 		//validRows=std::min(validRows,rings[channelID][ringIndex].img.rows-rings[channelID][ringIndex].cursor);
 
-		size_t dataSize = static_cast<size_t>(width) * validRows;
+		size_t dataSize=static_cast<size_t>(width)*validRows*2;// 2 bytes per pixel for CV_16UC1
 		cv::Mat &dst = rings[channelID][ringIndex].img;
-		size_t offset = static_cast<size_t>(rings[channelID][ringIndex].cursor) * static_cast<size_t>(width);
-		if(offset+dataSize>static_cast<size_t>(dst.rows)*static_cast<size_t>(dst.cols))
+		size_t offset=static_cast<size_t>(rings[channelID][ringIndex].cursor)*static_cast<size_t>(width)*2; // 2 bytes per pixel for CV_16UC1
+		if(offset+dataSize>static_cast<size_t>(dst.rows)*static_cast<size_t>(dst.cols)*2)
 		{ 
 			write_log(LogType::Warning,"AddRingProcessFrame",std::format("Truncated data exceeds allocated ring image size: offset={} + dataSize={} > totalSize={}",offset,dataSize,dst.rows*dst.cols).c_str());
 			//return AlgoResult::Failure("AddRingProcessFrame: data exceeds allocated ring image size");
 			dataSize=static_cast<size_t>(dst.rows)*static_cast<size_t>(dst.cols)-offset;
 		}
-		//cv::Mat temp(height,width,CV_8UC1,const_cast<unsigned char*>(imageData));
+		//cv::Mat temp(height,width,CV_16UC1,const_cast<unsigned char*>(imageData));
 		//cv::imwrite("d:/tmp/verification.png", temp);
 		std::memcpy(dst.data + offset, imageData, dataSize);
 		rings[channelID][ringIndex].cursor += validRows;
@@ -540,80 +540,92 @@ extern "C"
 		return AlgoResult::Success();
 	}
 
-	ALGO_API AlgoResult EndRingProcess(DetectChannel channelID,int ringIndex,
-		bool* isOverLoad,bool* isHazeOverload)
+	ALGO_API AlgoResult EndRingProcess(DetectChannel channelID,int ringIndex, bool* isOverLoad,bool* isHazeOverload)
 	{
-		(void)isOverLoad; (void)isHazeOverload;
-		cv::Mat rimg;
-		{// lock scope for ring image processing
-			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
-			rimg=rings[channelID][ringIndex].img.clone(); // or assign without clone if you prefer shared header
-			//rings[channelID][ringIndex].img.convertTo(rimg,CV_32FC1); // convert to float for processing
-			//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
-		}
-		write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-		auto col_intensity=estimate_column_intensity_stat(rimg);
-		cv::Mat flattened=flatten(rimg); //flatten the image to remove background variations
-		cv::Mat haze(rimg.size(),rimg.type()); //haze: background comes frome scattering of laser by the roughness of the wafer surface
+		if(isOverLoad)*isOverLoad=false; 
+		if(isHazeOverload)*isHazeOverload=false;
+		try
+		{ 
+			cv::Mat rimg;
+			{// lock scope for ring image processing
+				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
+				rimg=rings[channelID][ringIndex].img.clone(); // or assign without clone if you prefer shared header
+				//rings[channelID][ringIndex].img.convertTo(rimg,CV_32FC1); // convert to float for processing
+				//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
+			}
+			write_log(LogType::Info,"EndRingProcess",std::format("Estimating column intensity...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
+			auto col_intensity=estimate_column_intensity_stat(rimg);
+			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
+			cv::Mat flattened=flatten(rimg); //flatten the image to remove background variations
+			double minval,maxval;
+			cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
+			std::println("flattened range: min={}, max={}",minval,maxval);
+			cv::Mat haze(rimg.size(),flattened.type(),cv::Scalar(100)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
 
-		// Minimum filter: each haze pixel is the minimum in its nnbh × nnbh neighborhood.
-		//const int nnbh=31; // neighborhood size for min filter, must be odd and > 1
-		//cv::erode( flattened, haze, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(nnbh, nnbh)), cv::Point(-1, -1), 1, cv::BORDER_REPLICATE);
-		//{ // Apply a median filter vertically within each column only.
-		//	constexpr int verticalMedianKernel=31; // Must be odd and > 1.  
-		//	#pragma omp parallel for
-		//	for(int x=0; x<flattened.cols; ++x)
-		//		cv::medianBlur(flattened.col(x),haze.col(x),verticalMedianKernel);
-		//}
-		{ // Apply a median filter horizontally within each row only.
-			constexpr int horizontalMedianKernel=31; // Must be odd and > 1.  
-			#pragma omp parallel for
-			for(int y=0; y<flattened.rows; ++y)
-				cv::medianBlur(flattened.row(y),haze.row(y),horizontalMedianKernel);
-		}
-		cv::Mat dehazed=flattened-haze;
-		//cv::Mat dehazed;
-		//cv::Mat flattened_float,haze_float;
-		//flattened.convertTo(flattened_float,CV_32FC1);
-		//haze.convertTo(haze_float,CV_32FC1);	
-		//cv::max(0,flattened_float-haze_float,dehazed);
-		double minVal,maxVal;
-		cv::minMaxLoc(dehazed,&minVal,&maxVal);
-		std::println("Range of elements in dehazed: [{},{}]",minVal,maxVal);
+			// Minimum filter: each haze pixel is the minimum in its nnbh × nnbh neighborhood.
+			//const int nnbh=31; // neighborhood size for min filter, must be odd and > 1
+			//cv::erode( flattened, haze, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(nnbh, nnbh)), cv::Point(-1, -1), 1, cv::BORDER_REPLICATE);
+			//{ // Apply a median filter vertically within each column only.
+			//	constexpr int verticalMedianKernel=31; // Must be odd and > 1.  
+			//	#pragma omp parallel for
+			//	for(int x=0; x<flattened.cols; ++x)
+			//		cv::medianBlur(flattened.col(x),haze.col(x),verticalMedianKernel);
+			//}
+//			{ // Apply a median filter horizontally within each row only.
+//				constexpr int horizontalMedianKernel=5; // Must be odd and > 1.  
+//#pragma omp parallel for
+//				for(int y=0; y<flattened.rows; ++y)
+//					cv::medianBlur(flattened.row(y),haze.row(y),horizontalMedianKernel);
+//			}
+			cv::Mat dehazed=flattened-haze;
+			//cv::Mat dehazed;
+			//cv::Mat flattened_float,haze_float;
+			//flattened.convertTo(flattened_float,CV_32FC1);
+			//haze.convertTo(haze_float,CV_32FC1);	
+			//cv::max(0,flattened_float-haze_float,dehazed);
+			double minVal,maxVal;
+			cv::minMaxLoc(dehazed,&minVal,&maxVal);
+			std::println("Range of elements in dehazed: [{},{}]",minVal,maxVal);
 
-		//update the ring structure with the processed images
-		{// Process the ring image to detect defects and populate the defect map
-			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
-			//rings[channelID][ringIndex].defectmap=dehazed.clone(); // For demonstration, copy the ring image to defect map 
-			rings[channelID][ringIndex].haze=haze.clone();
-			rings[channelID][ringIndex].dehazed=dehazed.clone();
-			rings[channelID][ringIndex].column_intensity=col_intensity;
-		}
-		write_log(LogType::Info,"EndRingProcess",std::format("Dehazing completed for channelID={}, ringIndex={}",static_cast<int>(channelID),ringIndex).c_str());
-		double min_val,max_val, mean_val;
-		const auto [min_it,max_it]=std::minmax_element(col_intensity.begin(),col_intensity.end());
-		min_val=*min_it;
-		max_val=*max_it;
-		mean_val=std::accumulate(col_intensity.begin(),col_intensity.end(),0.0)/col_intensity.size(); 
-		write_log(LogType::Info,"EndRingProcess",std::format("Ring intensity before calibration: min={},max={},mean={}",min_val,max_val,mean_val).c_str());
+			//update the ring structure with the processed images
+			{// Process the ring image to detect defects and populate the defect map
+				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
+				//rings[channelID][ringIndex].defectmap=dehazed.clone(); // For demonstration, copy the ring image to defect map 
+				rings[channelID][ringIndex].haze=haze.clone();
+				rings[channelID][ringIndex].dehazed=dehazed.clone();
+				rings[channelID][ringIndex].column_intensity=col_intensity;
+			}
+			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing completed for channelID={}, ringIndex={}",static_cast<int>(channelID),ringIndex).c_str());
+			double min_val,max_val,mean_val;
+			const auto [min_it,max_it]=std::minmax_element(col_intensity.begin(),col_intensity.end());
+			min_val=*min_it;
+			max_val=*max_it;
+			mean_val=std::accumulate(col_intensity.begin(),col_intensity.end(),0.0)/col_intensity.size();
+			write_log(LogType::Info,"EndRingProcess",std::format("Ring intensity before calibration: min={},max={},mean={}",min_val,max_val,mean_val).c_str());
 
-		//save data to disk 
-		std::string dir;
+			//save data to disk 
+			std::string dir;
+			{
+				std::lock_guard<std::mutex> gd(mtx_chsettings);
+				//std::cout<<chsettings[channelID]["ring"];
+				dir=chsettings[channelID]["ring"]["ImageSaveDirectory"];
+			}
+			if(dir!="")
+			{
+				auto fn=dir+std::format("/ch{}r{}.png",static_cast<int>(channelID),ringIndex);
+				cv::imwrite(fn,rimg);
+				write_log(LogType::Info,"EndRingProcess",std::format("Images saved for channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
+				//auto fn_dehazed=dir+std::format("/ch{}r{}_dehazed.png",static_cast<int>(channelID),ringIndex);
+				//cv::imwrite(fn_dehazed,dehazed); 
+				flatten(rimg,std::format("{}/flattenning_{}.txt",dir,ringIndex));
+			}
+			return AlgoResult::Success();
+		}
+		catch(const std::exception& e)
 		{
-			std::lock_guard<std::mutex> gd(mtx_chsettings);
-			//std::cout<<chsettings[channelID]["ring"];
-			dir=chsettings[channelID]["ring"]["ImageSaveDirectory"];
+			write_log(LogType::Error,"EndRingProcess",std::format("Exception caught: {}",e.what()).c_str());
+			return AlgoResult::Failure(e.what());
 		}
-		if(dir!="")
-		{
-			auto fn=dir+std::format("/ch{}r{}.png",static_cast<int>(channelID),ringIndex);
-			cv::imwrite(fn,rimg);
-			//auto fn_dehazed=dir+std::format("/ch{}r{}_dehazed.png",static_cast<int>(channelID),ringIndex);
-			//cv::imwrite(fn_dehazed,dehazed); 
-			flatten(rimg,std::format("{}/flattenning_{}.txt",dir,ringIndex));
-			write_log(LogType::Info,"EndRingProcess",std::format("Images saved for channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-		}
-		return AlgoResult::Success();
 	} 
 
 	ALGO_API AlgoResult EndChannelProcess(DetectChannel channelID,DefectInfoListStruct* descriptor)
@@ -655,11 +667,11 @@ extern "C"
 		//Now we find the pixel value for each pixel in the mergedImage by mapping it to the corresponding ring image
 		//The first ring image corresponds to the outermost ring. In each ring image, the first column corresponds to the angle 0, and the last column corresponds to the angle 2*pi. The first row corresponds to the outer edge of the ring, and the last row corresponds to the inner edge of the ring.
 		//The the first row of each ring image corresponds to theta=0, and the last row corresponds to theta=2*pi. 
-		cv::Mat fullimage(H,W,CV_8UC1,cv::Scalar(0));
+		cv::Mat fullimage(H,W,CV_16UC1,cv::Scalar(0));
 		//cv::Mat defectmap(H,W,CV_32F,cv::Scalar(0));
-		cv::Mat haze(H,W,CV_8UC1,cv::Scalar(0));
+		cv::Mat haze(H,W,CV_16UC1,cv::Scalar(0));
 		//cv::Mat dehazed(H,W,CV_32F,cv::Scalar(0));
-		cv::Mat dehazed(H,W,CV_8UC1,cv::Scalar(0));
+		cv::Mat dehazed(H,W,CV_16UC1,cv::Scalar(0));
 		write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, constructing full map of size={}x{}",static_cast<int>(channelID),fullimage.cols,fullimage.rows).c_str());
 #pragma omp parallel for
 		for(int i=0;i<H;i++)
@@ -703,11 +715,11 @@ extern "C"
 				col=cols-1-col;// flip the column index to match the orientation of the ring image
 
 				//fullimage.at<uchar>(i,j)=rings_copy[idxr].defectmap.at<uchar>(row,col);
-				fullimage.at<uchar>(i,j)=rings_copy[idxr].img.at<uchar>(row,col);
+				fullimage.at<ushort>(i,j)=rings_copy[idxr].img.at<ushort>(row,col);
 				//defectmap.at<float>(i,j)=rings_copy[idxr].defectmap.at<float>(row,col);
-				haze.at<uchar>(i,j)=rings_copy[idxr].haze.at<uchar>(row,col);
+				haze.at<ushort>(i,j)=rings_copy[idxr].haze.at<ushort>(row,col);
 				//dehazed.at<float>(i,j)=rings_copy[idxr].dehazed.at<float>(row,col);
-				dehazed.at<uchar>(i,j)=rings_copy[idxr].dehazed.at<uchar>(row,col);
+				dehazed.at<ushort>(i,j)=rings_copy[idxr].dehazed.at<ushort>(row,col);
 			}
 		}
 		write_log(LogType::Info,"EndChannelProcess","Full map constructed");
@@ -771,6 +783,7 @@ extern "C"
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
 				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation);
 				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
+				cv::imwrite(dir+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256);
 
 			}
 
@@ -790,6 +803,26 @@ extern "C"
 		write_log(LogType::Info,"EndChannelProcess","Saving mmap");
 		save_to_mmap(descriptor->Name,(void*)defects.data(),numDefects*sizeof(DefectInfoStruct));
 		write_log(LogType::Info,"EndChannelProcess","Finished saving mmap");
+		return AlgoResult::Success();
+	}
+	ALGO_API AlgoResult SaveImage16bit(char* path,void* data_ptr,int width,int height,float scale)
+	{ // Save a 16-bit image to disk, scaling the pixel values by 'scale'
+		if(!data_ptr)
+			return AlgoResult::Failure("SaveImage16bit: data_ptr is null");
+		cv::Mat img(height,width,CV_16UC1,data_ptr);
+		if(scale!=1.0f)
+			img.convertTo(img,CV_16UC1,scale);
+		if(!cv::imwrite(path,img))
+			return AlgoResult::Failure(std::format("SaveImage16bit: failed to write image to {}",path).c_str());
+		return AlgoResult::Success(); 
+	}
+	ALGO_API AlgoResult SaveImage8bit(char* path,void* data_ptr,int width,int height)
+	{
+		if(!data_ptr)
+			return AlgoResult::Failure("SaveImage8bit: data_ptr is null");
+		cv::Mat img(height,width,CV_8UC1,data_ptr);
+		if(!cv::imwrite(path,img))
+			return AlgoResult::Failure(std::format("SaveImage8bit: failed to write image to {}",path).c_str());
 		return AlgoResult::Success();
 	}
 }

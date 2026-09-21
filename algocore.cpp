@@ -69,10 +69,7 @@ std::vector<double> estimate_column_intensity_stat(cv::Mat image)
 {
     if (image.empty()) {
         return {};
-    }
-
-    if (image.type() != CV_8UC1 && image.type() != CV_16UC1) {
-    }
+    } 
 
     std::vector<double> result(image.cols, 0.0);
 
@@ -92,10 +89,12 @@ std::vector<double> estimate_column_intensity_stat(cv::Mat image)
 cv::Mat flatten(cv::Mat image,std::string debugfilename) 
 {
     if (image.empty()) 
-        return image;
+		throw std::invalid_argument("algocore.cpp: flatten(): Input image is empty");
     
-    if (image.type() != CV_8UC1 && image.type() != CV_16UC1 && image.type() != CV_32FC1) 
-        throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
+    //if (image.type() != CV_8UC1 && image.type() != CV_16UC1 && image.type() != CV_32FC1) 
+        //throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
+    if (image.type() != CV_16UC1) 
+        throw std::invalid_argument("Input image must be single-channel  16-bit");
 
     int W = image.cols;
     int H = image.rows;
@@ -124,32 +123,44 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
              else 
                 inv_scales[x] = 1.0; 
         }
+	std::println("Flattening: min={}, max={}, mean={}",min_val,max_val,mean_val);
 
     // Step 3: Multiply each column by its inverse scale
+    //cv::Mat result(image.size(), CV_32F);
     cv::Mat result(image.size(), image.type());
 
-    if (image.type() == CV_8UC1) {
-        #pragma omp parallel for schedule(static)
-        for (int y = 0; y < H; ++y) {
-            const uchar* src_row = image.ptr<uchar>(y);
-            uchar* dst_row = result.ptr<uchar>(y);
-            for (int x = 0; x < W; ++x) {
-                dst_row[x] = cv::saturate_cast<uchar>(src_row[x] * inv_scales[x]);
-            }
-        }
-    } else if (image.type() == CV_16UC1) {
+    //if (image.type() == CV_8UC1) {
+    //    #pragma omp parallel for schedule(static)
+    //    for (int y = 0; y < H; ++y) {
+    //        const uchar* src_row = image.ptr<uchar>(y);
+    //        uchar* dst_row = result.ptr<uchar>(y);
+    //        for (int x = 0; x < W; ++x) {
+    //            dst_row[x] = cv::saturate_cast<uchar>(src_row[x] * inv_scales[x]);
+    //        }
+    //    }
+    //} else if (image.type() == CV_16UC1) {
         #pragma omp parallel for schedule(static)
         for (int y = 0; y < H; ++y) {
             const ushort* src_row = image.ptr<ushort>(y);
+            //float* dst_row = result.ptr<float>(y);
+            //for (int x = 0; x < W; ++x) 
+            //    dst_row[x] = static_cast<float>(src_row[x] * inv_scales[x]);
             ushort* dst_row = result.ptr<ushort>(y);
-            for (int x = 0; x < W; ++x) {
+            for (int x = 0; x < W; ++x) 
                 dst_row[x] = cv::saturate_cast<ushort>(src_row[x] * inv_scales[x]);
-            }
         }
-    }
+  //  }
+  //  else
+		//throw std::invalid_argument("Input image must be single-channel 8-bit or 16-bit");
+
+	//double minval,maxval;
+	//cv::minMaxLoc(result,&minval,&maxval,nullptr,nullptr);
+	//std::println("flattened output range: min={}, max={}",minval,maxval);
+	//std::println("Flattening complete. Image type: {}, Size: {}x{}",image.type(),W,H);
 
     // --- Debugging output generation ---
-    if(debugfilename!="") { 
+    if(debugfilename!="") 
+    { 
         // Calculate the average of each column in the output image
         cv::Mat out_col_avg;
         cv::reduce(result,out_col_avg,0,cv::REDUCE_AVG,CV_32F);

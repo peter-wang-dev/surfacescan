@@ -423,6 +423,11 @@ ALGO_API AlgoResult SetDMOParameters(const char* jsonDMOSetting);
 /// <summary>获取DMO融合后的缺陷检测结果，C++将结果写入共享内存，返回描述符</summary>
 ALGO_API AlgoResult GetDMOResults(DefectInfoListStruct* descriptor);
 
+
+//SaveImage16bit: 将16位图像数据保存为PNG文件
+
+ALGO_API AlgoResult SaveImage16bit(char* path,void* data_ptr,int width,int height,float scale=1.0f);
+ALGO_API AlgoResult SaveImage8bit(char* path,void* data_ptr,int width,int height);
 #ifdef __cplusplus
 }
 #endif

@@ -304,7 +304,9 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 		for (const auto& img_path : ring.images)
 		{
 			//cv::Mat img = cv::imread(img_path.string(), cv::IMREAD_UNCHANGED);
-			cv::Mat img = cv::imread(img_path.string(), CV_8UC1);
+			cv::Mat img8 = cv::imread(img_path.string(), CV_8UC1);
+			cv::Mat img;//convert to 16-bit unsigned single channel, but the data is only 12-bit
+			img8.convertTo(img,CV_16UC1,16.0); // we are simulating 12-bit data in a 16-bit container
 			ASSERT_FALSE(img.empty()) << "Failed to load image: " << img_path.string(); 
 			int frame_height=std::min(img.rows,rows_remaining);
 			std::println("Adding frame from {} ({}x{}) to ring {} with frame_height={} and rows_remaining={}",img_path.string(),img.cols,img.rows,ring.kr,frame_height,rows_remaining);

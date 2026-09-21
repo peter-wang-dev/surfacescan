@@ -8,12 +8,14 @@ std::string path_userinput;
 //const std::string path_input="./test_output/"; 
 TEST(core,flatten)
 { 
-	//auto datadir=path_input+"/dehaze";
-	auto datadir="D:/dev/test_output";
+	auto datadir=path_input+"/dehaze";
+	//auto datadir="D:/dev/test_output";
 	for(int kr=0; kr<11; ++kr)
 	{//index of ring 
 		auto imgpath=std::format("{}/ch1r{}.png",datadir,kr);
-		cv::Mat img=cv::imread(imgpath,CV_8U);
+		cv::Mat img8b=cv::imread(imgpath,CV_8U);
+		cv::Mat img;
+		img8b.convertTo(img,CV_16U,16.0f); // Convert to 16-bit unsigned
 		ASSERT_FALSE(img.empty())<<"Failed to load image: "<<imgpath;
 		cv::Mat flattened=flatten(img,std::format("{}/flattenning_{}.txt",path_output,kr));
 		ASSERT_FALSE(flattened.empty())<<"Flattening failed.";
