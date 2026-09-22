@@ -20,7 +20,7 @@ struct Ring
 	int index;
 	cv::Mat img; // accumulated image, CV_8U \in [0,255] or CV_16U \in [0,4096]
 	//cv::Mat defectmap; // defect map 
-	cv::Mat haze; // dehazed image, CV_32F \in [0,255]
+	//cv::Mat haze; // 
 	cv::Mat dehazed; // dehazed image, CV_32F \in [0,1]
 	std::vector<double> column_intensity;
 	int cursor=0; // current row index for adding new frames
@@ -568,9 +568,12 @@ extern "C"
 			auto col_intensity=estimate_column_intensity_stat(rimg);
 			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 			cv::Mat flattened=flatten(rimg); //flatten the image to remove background variations
+			write_log(LogType::Info,"EndRingProcess",std::format("Column intensity calibrated. ChannelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 			double minval,maxval;
 			cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
-			std::println("flattened range: min={}, max={}",minval,maxval);
+			//std::println("flattened range: min={}, max={}",minval,maxval);
+			write_log(LogType::Info,"EndRingProcess",std::format("Data range after calibration: [{},{}]. ChannelID={}, ringIndex={}, W={}, H={}",minval,maxval,static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
+
 
 			cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(100)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
 
@@ -601,7 +604,7 @@ extern "C"
 			{// Process the ring image to detect defects and populate the defect map
 				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 				//rings[channelID][ringIndex].defectmap=dehazed.clone(); // For demonstration, copy the ring image to defect map 
-				rings[channelID][ringIndex].haze=haze.clone();
+				//rings[channelID][ringIndex].haze=haze.clone();
 				rings[channelID][ringIndex].dehazed=dehazed.clone();
 				rings[channelID][ringIndex].column_intensity=col_intensity;
 			}
@@ -622,18 +625,18 @@ extern "C"
 			}
 			if(dir!="")
 			{
-				auto fn=dir+std::format("/ch{}r{}.png",static_cast<int>(channelID),ringIndex);
-				cv::imwrite(fn,rimg);
-				write_log(LogType::Info,"EndRingProcess",std::format("Images saved for channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-				//auto fn_dehazed=dir+std::format("/ch{}r{}_dehazed.png",static_cast<int>(channelID),ringIndex);
-				//cv::imwrite(fn_dehazed,dehazed); 
-				flatten(rimg,std::format("{}/flattenning_{}.txt",dir,ringIndex));
+				//auto fn=dir+std::format("/ch{}r{}.png",static_cast<int>(channelID),ringIndex);
+				//cv::imwrite(fn,rimg);
+				//write_log(LogType::Info,"EndRingProcess",std::format("Images saved for channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
+				////auto fn_dehazed=dir+std::format("/ch{}r{}_dehazed.png",static_cast<int>(channelID),ringIndex);
+				////cv::imwrite(fn_dehazed,dehazed); 
+				//flatten(rimg,std::format("{}/flattenning_{}.txt",dir,ringIndex));
 			}
 			return AlgoResult::Success();
 		}
 		catch(const std::exception& e)
 		{
-			write_log(LogType::Error,"EndRingProcess",std::format("Exception caught: {}",e.what()).c_str());
+			write_log(LogType::Error,"EndRingProcess",std::format("Exception (channel {}, ring {}): {}",static_cast<int>(channelID),ringIndex,e.what()).c_str());
 			return AlgoResult::Failure(e.what());
 		}
 	} 
@@ -678,7 +681,7 @@ extern "C"
 		//The first ring image corresponds to the outermost ring. In each ring image, the first column corresponds to the angle 0, and the last column corresponds to the angle 2*pi. The first row corresponds to the outer edge of the ring, and the last row corresponds to the inner edge of the ring.
 		//The the first row of each ring image corresponds to theta=0, and the last row corresponds to theta=2*pi. 
 		cv::Mat fullimage(H,W,CV_16UC1,cv::Scalar(0));
-		cv::Mat haze(H,W,CV_32F,cv::Scalar(100));
+		//cv::Mat haze(H,W,CV_32F,cv::Scalar(100));
 		//cv::Mat haze(H,W,fullimage.type(),cv::Scalar(0));
 		cv::Mat dehazed(H,W,CV_32F,cv::Scalar(0));
 		//cv::Mat dehazed(H,W,fullimage.type(),cv::Scalar(0));
@@ -728,11 +731,16 @@ extern "C"
 				//defectmap.at<float>(i,j)=rings_copy[idxr].defectmap.at<float>(row,col);
 				//dehazed.at<float>(i,j)=rings_copy[idxr].dehazed.at<float>(row,col);
 				fullimage.at<ushort>(i,j)=rings_copy[idxr].img.at<ushort>(row,col);
-				haze.at<float>(i,j)=rings_copy[idxr].haze.at<float>(row,col);
+				//haze.at<float>(i,j)=rings_copy[idxr].haze.at<float>(row,col);
 				dehazed.at<float>(i,j)=rings_copy[idxr].dehazed.at<float>(row,col);
 			}
 		}
 		write_log(LogType::Info,"EndChannelProcess","Full map constructed");
+		{
+			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
+			rings[channelID].clear(); // Clear the ring images for this channel to free memory 
+		}
+		write_log(LogType::Info,"EndChannelProcess","Input frames cleared");
 
 		//imgprobe(fullimage,true);
 		//imgprobe(haze,true);
@@ -792,22 +800,23 @@ extern "C"
 				};
 			if(DebugOutput)
 			{
-				write_log(LogType::Info,"EndChannelProcess","Saving haze map");
-				imwrite_as16bit(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
+				//write_log(LogType::Info,"EndChannelProcess","Saving haze map");
+				//imwrite_as16bit(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
 				//cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
 				imwrite_as16bit(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
 				imwrite_as16bit(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
+				dehazed.release();
 				//cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
 				//cv::imwrite(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
 				write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
 				//cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
 				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
+				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
 				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation);
 				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
-				cv::imwrite(dir+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256);
-
+				//cv::imwrite(dir+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");
