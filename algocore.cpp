@@ -126,8 +126,8 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
 	std::println("Flattening: min={}, max={}, mean={}",min_val,max_val,mean_val);
 
     // Step 3: Multiply each column by its inverse scale
-    //cv::Mat result(image.size(), CV_32F);
-    cv::Mat result(image.size(), image.type());
+    cv::Mat result(image.size(), CV_32F);
+    //cv::Mat result(image.size(), image.type());
 
     //if (image.type() == CV_8UC1) {
     //    #pragma omp parallel for schedule(static)
@@ -142,12 +142,12 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
         #pragma omp parallel for schedule(static)
         for (int y = 0; y < H; ++y) {
             const ushort* src_row = image.ptr<ushort>(y);
-            //float* dst_row = result.ptr<float>(y);
-            //for (int x = 0; x < W; ++x) 
-            //    dst_row[x] = static_cast<float>(src_row[x] * inv_scales[x]);
-            ushort* dst_row = result.ptr<ushort>(y);
+            float* dst_row = result.ptr<float>(y);
             for (int x = 0; x < W; ++x) 
-                dst_row[x] = cv::saturate_cast<ushort>(src_row[x] * inv_scales[x]);
+                dst_row[x] = static_cast<float>(src_row[x] * inv_scales[x]);
+            //ushort* dst_row = result.ptr<ushort>(y);
+            //for (int x = 0; x < W; ++x) 
+            //    dst_row[x] = cv::saturate_cast<ushort>(src_row[x] * inv_scales[x]);
         }
   //  }
   //  else
@@ -186,16 +186,16 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
     return result;
 }
 
-cv::Mat dehaze(cv::Mat image)
-{
-	cv::Mat dehazed;
-	// Convert to float for processing
-	image.convertTo(dehazed,CV_32F,1.0/255.0);
-	// Apply a simple dehazing algorithm (placeholder)
-	cv::Mat darkChannel;
-	cv::erode(dehazed,darkChannel,cv::Mat(),cv::Point(-1,-1),15);
-	cv::Mat transmission=1.0-darkChannel;
-	cv::normalize(transmission, transmission, 0, 1, cv::NORM_MINMAX);
-
-	return dehazed;
-}
+//cv::Mat dehaze(cv::Mat image)
+//{
+//	cv::Mat dehazed;
+//	// Convert to float for processing
+//	image.convertTo(dehazed,CV_32F,1.0/255.0);
+//	// Apply a simple dehazing algorithm (placeholder)
+//	cv::Mat darkChannel;
+//	cv::erode(dehazed,darkChannel,cv::Mat(),cv::Point(-1,-1),15);
+//	cv::Mat transmission=1.0-darkChannel;
+//	cv::normalize(transmission, transmission, 0, 1, cv::NORM_MINMAX);
+//
+//	return dehazed;
+//}

@@ -39,10 +39,20 @@ void write_log(LogType level,const char* source,const char* message)
 	//if(LogType::Info==level) return; 
 	printf("[%d] %s: %s\n",static_cast<int>(level),source,message);
 }
+void imgprobe(cv::Mat img, bool continue_flag=false)
+{
+	double minVal,maxVal;
+	cv::minMaxLoc(img,&minVal,&maxVal);
+	std::println("Probed image: type={}, height={}, width={}",img.type(),img.rows,img.cols);
+	std::println("Range of elements in probed image : [{},{}]",minVal,maxVal);
+	if(!continue_flag)
+		throw std::runtime_error("Intentional exception for image probing");
+}
 
 std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,DetectChannel channel)
 {
-	CV_Assert(image.type() == CV_16UC1);
+	//CV_Assert(image.type() == CV_16UC1);
+	CV_Assert(image.type() == CV_32F);
 	// Output verification
 	std::cout<<"Intensities: ";
 	for(double val:Intensities) std::cout<<val<<" ";
@@ -114,7 +124,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			for(int j=left; j<left+width; ++j)
 				if(labels.at<int>(i,j)==lbl)
 				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
-					intg+=image.at<ushort>(i,j);
+					intg+=image.at<float>(i,j);
 
 		//ignore the superficial components that are not part of the binary mask
 		cv::Mat componentMask;
@@ -125,7 +135,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		if(binaryPixelCount==0)
 			continue;
 
-		if(intg<0.1f)
+		if(intg<0.1f)//should not happen, but just in case
 		{
 			std::println("Found region with integrated intensity {} below 0.1",intg);
 			std::println( "channel={}, label={}: area={}, binary pixels in closure component={}, intg={}",
@@ -136,7 +146,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 						//std::println("Pixel ({},{}) intensity {}",j,i,image.at<uchar>(i,j)); 
 						std::println(
 							"inspect channel={}, label={}: integrated intensity {} below 0.1; pixel ({}, {}) intensity {}",
-							static_cast<int>(channel), lbl, intg, j, i, image.at<ushort>(i,j));
+							static_cast<int>(channel), lbl, intg, j, i, image.at<float>(i,j));
 		}
 
 		double cx=centroids.at<double>(lbl,0);
@@ -550,6 +560,7 @@ extern "C"
 			{// lock scope for ring image processing
 				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 				rimg=rings[channelID][ringIndex].img.clone(); // or assign without clone if you prefer shared header
+				//imgprobe( rimg=rings[channelID][ringIndex].img.clone()); 
 				//rings[channelID][ringIndex].img.convertTo(rimg,CV_32FC1); // convert to float for processing
 				//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
 			}
@@ -560,7 +571,8 @@ extern "C"
 			double minval,maxval;
 			cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
 			std::println("flattened range: min={}, max={}",minval,maxval);
-			cv::Mat haze(rimg.size(),flattened.type(),cv::Scalar(100)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
+
+			cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(100)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
 
 			// Minimum filter: each haze pixel is the minimum in its nnbh × nnbh neighborhood.
 			//const int nnbh=31; // neighborhood size for min filter, must be odd and > 1
@@ -577,15 +589,13 @@ extern "C"
 //				for(int y=0; y<flattened.rows; ++y)
 //					cv::medianBlur(flattened.row(y),haze.row(y),horizontalMedianKernel);
 //			}
-			cv::Mat dehazed=flattened-haze;
-			//cv::Mat dehazed;
-			//cv::Mat flattened_float,haze_float;
-			//flattened.convertTo(flattened_float,CV_32FC1);
+			cv::Mat dehazed;
 			//haze.convertTo(haze_float,CV_32FC1);	
-			//cv::max(0,flattened_float-haze_float,dehazed);
-			double minVal,maxVal;
-			cv::minMaxLoc(dehazed,&minVal,&maxVal);
-			std::println("Range of elements in dehazed: [{},{}]",minVal,maxVal);
+			cv::max(0,flattened-haze,dehazed);
+			//imgprobe(rimg,true);
+			//imgprobe(flattened,true);
+			//imgprobe(haze,true);
+			//imgprobe(dehazed);
 
 			//update the ring structure with the processed images
 			{// Process the ring image to detect defects and populate the defect map
@@ -668,10 +678,10 @@ extern "C"
 		//The first ring image corresponds to the outermost ring. In each ring image, the first column corresponds to the angle 0, and the last column corresponds to the angle 2*pi. The first row corresponds to the outer edge of the ring, and the last row corresponds to the inner edge of the ring.
 		//The the first row of each ring image corresponds to theta=0, and the last row corresponds to theta=2*pi. 
 		cv::Mat fullimage(H,W,CV_16UC1,cv::Scalar(0));
-		//cv::Mat defectmap(H,W,CV_32F,cv::Scalar(0));
-		cv::Mat haze(H,W,CV_16UC1,cv::Scalar(0));
-		//cv::Mat dehazed(H,W,CV_32F,cv::Scalar(0));
-		cv::Mat dehazed(H,W,CV_16UC1,cv::Scalar(0));
+		cv::Mat haze(H,W,CV_32F,cv::Scalar(100));
+		//cv::Mat haze(H,W,fullimage.type(),cv::Scalar(0));
+		cv::Mat dehazed(H,W,CV_32F,cv::Scalar(0));
+		//cv::Mat dehazed(H,W,fullimage.type(),cv::Scalar(0));
 		write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, constructing full map of size={}x{}",static_cast<int>(channelID),fullimage.cols,fullimage.rows).c_str());
 #pragma omp parallel for
 		for(int i=0;i<H;i++)
@@ -715,14 +725,18 @@ extern "C"
 				col=cols-1-col;// flip the column index to match the orientation of the ring image
 
 				//fullimage.at<uchar>(i,j)=rings_copy[idxr].defectmap.at<uchar>(row,col);
-				fullimage.at<ushort>(i,j)=rings_copy[idxr].img.at<ushort>(row,col);
 				//defectmap.at<float>(i,j)=rings_copy[idxr].defectmap.at<float>(row,col);
-				haze.at<ushort>(i,j)=rings_copy[idxr].haze.at<ushort>(row,col);
 				//dehazed.at<float>(i,j)=rings_copy[idxr].dehazed.at<float>(row,col);
-				dehazed.at<ushort>(i,j)=rings_copy[idxr].dehazed.at<ushort>(row,col);
+				fullimage.at<ushort>(i,j)=rings_copy[idxr].img.at<ushort>(row,col);
+				haze.at<float>(i,j)=rings_copy[idxr].haze.at<float>(row,col);
+				dehazed.at<float>(i,j)=rings_copy[idxr].dehazed.at<float>(row,col);
 			}
 		}
 		write_log(LogType::Info,"EndChannelProcess","Full map constructed");
+
+		//imgprobe(fullimage,true);
+		//imgprobe(haze,true);
+		//imgprobe(dehazed);
 
 		//DEFECT INSPECTION
 		//std::string DSizeCurve;
@@ -746,12 +760,12 @@ extern "C"
 				else
 				{
 					write_log(LogType::Warning,"EndChannelProcess","DSizeCurveJson does not contain 'CurvePoints' or it is not an array. Using default values."); 
-					Intensities={230,250};
-					DSizes={200,300};
+					Intensities={3000,5000};
+					DSizes={0.2,0.5};
 				}
 			}
 		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
-		std::vector<DefectInfoStruct> defects=inspect(dehazed.clone(),Intensities,DSizes,pixelsize,channelID);
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 
 		//OUTPUT
@@ -770,13 +784,22 @@ extern "C"
 		{
 			write_log(LogType::Info,"EndChannelProcess","Saving fullmap");
 			cv::imwrite(dir+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage); 
+			auto imwrite_as16bit=[](const std::string& path,const cv::Mat& img32f)
+				{
+					cv::Mat img;
+					img32f.convertTo(img,CV_16UC1);
+					cv::imwrite(path,img);
+				};
 			if(DebugOutput)
 			{
 				write_log(LogType::Info,"EndChannelProcess","Saving haze map");
-				cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
+				imwrite_as16bit(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
+				//cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
-				cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
-				cv::imwrite(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
+				imwrite_as16bit(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
+				imwrite_as16bit(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
+				//cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
+				//cv::imwrite(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
 				write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
 				//cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
 				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
