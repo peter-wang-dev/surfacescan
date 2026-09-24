@@ -256,7 +256,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 		auto numImages=std::distance(fs::directory_iterator(ring_dir),fs::directory_iterator{});
 		info.images.reserve(static_cast<size_t>(numImages));
 		for (int i = 0; i < static_cast<int>(numImages); ++i)
-			info.images.emplace_back(ring_dir / std::format("{}.bmp", i));
+			info.images.emplace_back(ring_dir / std::format("{}.tiff", i));
 
 		ASSERT_NE(info.images.size(),0u)<<"No images found in ring directory: "<<ring_dir.string();
 		cv::Mat first_img=cv::imread(info.images[0].string(),CV_8UC1);
@@ -303,10 +303,10 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 		std::println("Ring {} started with ringWidth={}, ringHeight={}, validRows={}",ring.kr,ring.ringWidth,ring.ringHeight,rows_remaining);
 		for (const auto& img_path : ring.images)
 		{
-			//cv::Mat img = cv::imread(img_path.string(), cv::IMREAD_UNCHANGED);
-			cv::Mat img8 = cv::imread(img_path.string(), CV_8UC1);
-			cv::Mat img;//convert to 16-bit unsigned single channel, but the data is only 12-bit
-			img8.convertTo(img,CV_16UC1,16.0); // we are simulating 12-bit data in a 16-bit container
+			cv::Mat img = cv::imread(img_path.string(), CV_16UC1);
+			//cv::Mat img8 = cv::imread(img_path.string(), CV_8UC1);
+			//cv::Mat img;//convert to 16-bit unsigned single channel, but the greatest 4 bit are zero, simulating 12-bit data in a 16-bit container
+			//img8.convertTo(img,CV_16UC1,16.0); // we are simulating 12-bit data in a 16-bit container, so the lowest 4 bits and the highest 4 bits are zero, and the middle 8 bits contain the actual data
 			ASSERT_FALSE(img.empty()) << "Failed to load image: " << img_path.string(); 
 			int frame_height=std::min(img.rows,rows_remaining);
 			std::println("Adding frame from {} ({}x{}) to ring {} with frame_height={} and rows_remaining={}",img_path.string(),img.cols,img.rows,ring.kr,frame_height,rows_remaining);

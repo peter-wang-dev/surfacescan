@@ -98,10 +98,21 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
 
     int W = image.cols;
     int H = image.rows;
+	std::vector<double> colavg;
+    std::vector<double> inv_scales(W, 1.0f);
+    std::vector<double> W_elements(W, 0.0f); // Store for debugging 
 
     // Step 1: Calculate the average intensity of each column
 	//auto colavg=estimate_column_intensity(image);
-	auto colavg=estimate_column_intensity_stat(image);
+    try{
+		colavg=estimate_column_intensity_stat(image);
+	}
+	catch(const std::exception& e)
+	{
+		std::cerr<<"Error in estimate_column_intensity_stat: "<<e.what()<<std::endl;
+		throw std::runtime_error("Error in estimate_column_intensity_stat: "+std::string(e.what()));
+    }
+	//auto colavg=estimate_column_intensity_stat(image);
 
     // Step 2: Scale vector so max element is 1.0f, and precompute inverse factors
     double min_val, max_val, mean_val;
@@ -111,8 +122,6 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
 	mean_val=std::accumulate(colavg.begin(),colavg.end(),0.0)/colavg.size();
 	std::println("Flattening: min={}, max={}, mean={}",min_val,max_val,mean_val);
 
-    std::vector<double> inv_scales(W, 1.0f);
-    std::vector<double> W_elements(W, 0.0f); // Store for debugging 
 	double desired=100.0; // Desired average intensity for the flattened image
     if(max_val>0.0)
     { 
@@ -128,18 +137,9 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
 
     // Step 3: Multiply each column by its inverse scale
     cv::Mat result(image.size(), CV_32F);
-    //cv::Mat result(image.size(), image.type());
+    try
+    {
 
-    //if (image.type() == CV_8UC1) {
-    //    #pragma omp parallel for schedule(static)
-    //    for (int y = 0; y < H; ++y) {
-    //        const uchar* src_row = image.ptr<uchar>(y);
-    //        uchar* dst_row = result.ptr<uchar>(y);
-    //        for (int x = 0; x < W; ++x) {
-    //            dst_row[x] = cv::saturate_cast<uchar>(src_row[x] * inv_scales[x]);
-    //        }
-    //    }
-    //} else if (image.type() == CV_16UC1) {
         #pragma omp parallel for schedule(static)
         for (int y = 0; y < H; ++y) {
             const ushort* src_row = image.ptr<ushort>(y);
@@ -150,9 +150,11 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
             //for (int x = 0; x < W; ++x) 
             //    dst_row[x] = cv::saturate_cast<ushort>(src_row[x] * inv_scales[x]);
         }
-  //  }
-  //  else
-		//throw std::invalid_argument("Input image must be single-channel 8-bit or 16-bit");
+    }
+	catch(const std::exception& e)
+	{
+		throw std::runtime_error("Error during flattening - column scaling process: "+std::string(e.what()));
+	}
 
 	//double minval,maxval;
 	//cv::minMaxLoc(result,&minval,&maxval,nullptr,nullptr);
@@ -172,7 +174,7 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
         if(outfile.is_open()) 
         {
             outfile<<"Index\tInput_Avg\tW_Element\tOutput_Avg\n";
-            outfile<<std::fixed<<std::setprecision(4); 
+            outfile<<std::fixed<<std::setprecision(10); 
             for(int x=0; x<W; ++x) 
                 outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<out_avg_ptr[x]<<"\n";
             outfile.close();

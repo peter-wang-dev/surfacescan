@@ -552,8 +552,8 @@ extern "C"
 
 	ALGO_API AlgoResult EndRingProcess(DetectChannel channelID,int ringIndex, bool* isOverLoad,bool* isHazeOverload)
 	{
-		if(isOverLoad)*isOverLoad=false; 
-		if(isHazeOverload)*isHazeOverload=false;
+		//if(isOverLoad)*isOverLoad=false; 
+		//if(isHazeOverload)*isHazeOverload=false;
 		try
 		{ 
 			cv::Mat rimg;
@@ -564,10 +564,11 @@ extern "C"
 				//rings[channelID][ringIndex].img.convertTo(rimg,CV_32FC1); // convert to float for processing
 				//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
 			}
+			imgprobe(rimg,true);
 			write_log(LogType::Info,"EndRingProcess",std::format("Estimating column intensity...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 			auto col_intensity=estimate_column_intensity_stat(rimg);
 			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-			cv::Mat flattened=flatten(rimg); //flatten the image to remove background variations
+			cv::Mat flattened=flatten(rimg,DebugOutput?std::format("test_output/flattenning_{}.txt",ringIndex):"");
 			write_log(LogType::Info,"EndRingProcess",std::format("Column intensity calibrated. ChannelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 			double minval,maxval;
 			cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
@@ -816,7 +817,7 @@ extern "C"
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
 				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation);
 				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
-				//cv::imwrite(dir+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
+				cv::imwrite(dir+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");
