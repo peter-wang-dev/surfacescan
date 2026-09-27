@@ -15,6 +15,7 @@ std::mutex mtx_chsettings;
 std::map<DetectChannel, std::map<std::string, json>> chsettings;
 const double intensity_normalizer=100.0;
 bool DebugOutput=false;
+float pixelsize;
 struct Ring
 {
 	int index;
@@ -26,6 +27,7 @@ struct Ring
 	int cursor=0; // current row index for adding new frames
 	float theta0,theta1; // [in radians] starting angle for this ring
 	json processSetting, hazeCaliSetting, coordCaliSetting;
+	float radius_mm; // radius of this ring in mm 
 };
 std::mutex mtx_rings;
 std::map<DetectChannel,std::vector<Ring>> rings; //data structure to hold rings for each channel
@@ -72,7 +74,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 
 	std::vector<DefectInfoStruct> defects;
 	//auto intensity=Intensities[1]/2+1.0f;
-	const float intensity_threshold=40;
+	const float intensity_threshold=80;
 	//auto intensity_next=4096;
 	//if(Intensities.size()>2)
 	//	intensity_next=Intensities[2];
@@ -494,6 +496,8 @@ extern "C"
 		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, classifcation={}",static_cast<int>(channelID),classification).c_str());
 		if(chsettings[channelID]["ring"].find("DebugOutput")!=chsettings[channelID]["ring"].end())
 			DebugOutput=chsettings[channelID]["ring"]["DebugOutput"];
+		pixelsize=chsettings[channelID]["classification"]["PixelSize"];
+		std::println("setting pixelsize as {}",pixelsize);
 		return AlgoResult::Success();
 	}
 	ALGO_API AlgoResult BeginRingProcess(DetectChannel channelID,int ringIndex,
@@ -515,6 +519,8 @@ extern "C"
 		float theta0_angle=coordCaliJson["TriggerStart"]["T"];
 		float theta1_angle=coordCaliJson["TriggerEnd"]["T"];
 		float thetadiff_angle=theta1_angle-theta0_angle;
+		ring.radius_mm=coordCaliJson["TriggerStart"]["R"];
+		std::println("BeginRing: radius_mm={}",ring.radius_mm);
 		ring.theta0=theta0_angle/180.0f * static_cast<float>(CV_PI); //coverting to radians if needed, but assuming the input is in degrees or radians as required
 		while(ring.theta0>twopi) ring.theta0-=twopi;
 		ring.theta1=ring.theta0+thetadiff_angle/180.0f * static_cast<float>(CV_PI); 
@@ -568,7 +574,18 @@ extern "C"
 			write_log(LogType::Info,"EndRingProcess",std::format("Estimating column intensity...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 			auto col_intensity=estimate_column_intensity_stat(rimg);
 			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-			cv::Mat flattened=flatten(rimg,DebugOutput?std::format("test_output/flattenning_{}.txt",ringIndex):"");
+			float r_inner_mm,r_outer_mm;
+			{
+				std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
+				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
+				float W=static_cast<float>(rimg.cols);
+				float r=rings[channelID][ringIndex].radius_mm;
+				r_inner_mm=r-pixelsize/1000.0f*W/2;
+				r_outer_mm=r+pixelsize/1000.0f*W/2;
+				std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
+				std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
+			}
+			cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("test_output/flattenning_{}.txt",ringIndex):"");
 			write_log(LogType::Info,"EndRingProcess",std::format("Column intensity calibrated. ChannelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 			double minval,maxval;
 			cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
@@ -576,7 +593,10 @@ extern "C"
 			write_log(LogType::Info,"EndRingProcess",std::format("Data range after calibration: [{},{}]. ChannelID={}, ringIndex={}, W={}, H={}",minval,maxval,static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 
 
-			cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(100)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
+			cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
+			auto haze_col_intensity=estimate_column_intensity_stat(flattened);
+			for(int x=0; x<haze.cols; ++x)
+				haze.col(x)=haze_col_intensity[x];
 
 			// Minimum filter: each haze pixel is the minimum in its nnbh × nnbh neighborhood.
 			//const int nnbh=31; // neighborhood size for min filter, must be odd and > 1
@@ -587,12 +607,6 @@ extern "C"
 			//	for(int x=0; x<flattened.cols; ++x)
 			//		cv::medianBlur(flattened.col(x),haze.col(x),verticalMedianKernel);
 			//}
-//			{ // Apply a median filter horizontally within each row only.
-//				constexpr int horizontalMedianKernel=5; // Must be odd and > 1.  
-//#pragma omp parallel for
-//				for(int y=0; y<flattened.rows; ++y)
-//					cv::medianBlur(flattened.row(y),haze.row(y),horizontalMedianKernel);
-//			}
 			cv::Mat dehazed;
 			//haze.convertTo(haze_float,CV_32FC1);	
 			cv::max(0,flattened-haze,dehazed);
@@ -669,12 +683,11 @@ extern "C"
 		} 
 		const int W=2*std::accumulate(ringWidths.begin(),ringWidths.end(),0);
 		const int H=W;
-		float pixelsize;
 		int N=0;// number of rings
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
 			N=chsettings[channelID]["ring"]["TotalRings"]; 
-			pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
+			//pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
 		}
 
 		//FULL MAP CONSTRUCTION
@@ -791,8 +804,11 @@ extern "C"
 		write_log(LogType::Info,"EndChannelProcess",std::format("Saving images to directory: {}",dir).c_str());
 		if(dir!="")
 		{
+			std::vector<int> outputparams; 
+			outputparams.push_back(cv::IMWRITE_PNG_COMPRESSION);
+			outputparams.push_back(1);
 			write_log(LogType::Info,"EndChannelProcess","Saving fullmap");
-			cv::imwrite(dir+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage); 
+			cv::imwrite(dir+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage,outputparams); 
 			auto imwrite_as16bit=[](const std::string& path,const cv::Mat& img32f)
 				{
 					cv::Mat img;
@@ -805,19 +821,22 @@ extern "C"
 				//imwrite_as16bit(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
 				//cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
-				imwrite_as16bit(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
-				imwrite_as16bit(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
+				//imwrite_as16bit(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
+				//imwrite_as16bit(dir+std::format("/ch{}_dehazed_8ev.png",static_cast<int>(channelID)),dehazed*256);
+				cv::Mat dehazed_16UC1; 
+				dehazed.convertTo(dehazed_16UC1,CV_16UC1); 
+				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize);
+				cv::imwrite(dir+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
+				cv::imwrite(dir+std::format("/ch{}_dehazed_annotated_8ev.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
 				dehazed.release();
-				//cv::imwrite(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
-				//cv::imwrite(dir+std::format("/ch{}_dehazed_4ev.png",static_cast<int>(channelID)),dehazed*16);
 				write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
 				//cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
 				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
 				fullimage.release();
-				write_log(LogType::Info,"EndChannelProcess","saving defect annotation");
-				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation);
-				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
-				cv::imwrite(dir+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
+				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
+				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
+				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
+				//cv::imwrite(dir+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256,outputparams); 
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");

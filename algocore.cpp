@@ -48,7 +48,8 @@ void estimate_column_intensity_stat_impl(const cv::Mat& image, std::vector<doubl
             // 1. Sample N=10000 values randomly
             for (int i = 0; i < N; ++i) {
                 int y = dist(rng);
-                samples[i] = image.ptr<T>(y)[x];
+                //samples[i] = image.ptr<T>(y)[x];
+                samples[i] = image.at<T>(y, x);
             }
 
             // 2. Sort the values
@@ -86,7 +87,7 @@ std::vector<double> estimate_column_intensity_stat(cv::Mat image)
     return result;
 }
 
-cv::Mat flatten(cv::Mat image,std::string debugfilename) 
+cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfilename) 
 {
     if (image.empty()) 
 		throw std::invalid_argument("algocore.cpp: flatten(): Input image is empty");
@@ -111,6 +112,16 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
 	{
 		std::cerr<<"Error in estimate_column_intensity_stat: "<<e.what()<<std::endl;
 		throw std::runtime_error("Error in estimate_column_intensity_stat: "+std::string(e.what()));
+    }
+    //correct colavg because the intensity are distributed on circles with radius from r_inner to r_outer
+    std::vector<double> correction_factor;
+    const float pixelsize=4.832e-3;//mm/pixel
+    //std::println("flatten: r_inner={}, r_outer={}",r_inner,r_outer);
+    for(int x=0; x<W; ++x)
+    { 
+        double cf=r_outer/(pixelsize*x+r_inner+0.001);
+        correction_factor.push_back(cf); 
+        colavg[x]*=cf;
     }
 	//auto colavg=estimate_column_intensity_stat(image);
 
@@ -165,18 +176,20 @@ cv::Mat flatten(cv::Mat image,std::string debugfilename)
     if(debugfilename!="") 
     { 
         // Calculate the average of each column in the output image
-        cv::Mat out_col_avg;
-        cv::reduce(result,out_col_avg,0,cv::REDUCE_AVG,CV_32F);
-        float* out_avg_ptr=out_col_avg.ptr<float>(0);
+        //cv::Mat out_col_avg;
+        //cv::reduce(result,out_col_avg,0,cv::REDUCE_AVG,CV_32F);
+        //float* out_avg_ptr=out_col_avg.ptr<float>(0);
+        auto colavg_out=estimate_column_intensity_stat(result);
 
         // Save to debug file
         std::ofstream outfile(debugfilename);
         if(outfile.is_open()) 
         {
-            outfile<<"Index\tInput_Avg\tW_Element\tOutput_Avg\n";
-            outfile<<std::fixed<<std::setprecision(10); 
+            outfile<<"Index\tInput_Avg\tW_Element\tInput_Avg/W_Element\tColAvg_Out\n";
             for(int x=0; x<W; ++x) 
-                outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<out_avg_ptr[x]<<"\n";
+                //outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<out_avg_ptr[x]<<"\n";
+				outfile<<std::format("{}\t{:.10f}\t{:.10f}\t{:.10f}\t{:.10f}\n",x,colavg[x],W_elements[x],colavg[x]/W_elements[x],colavg_out[x]);
+                //outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<colavg_out[x]<<"\n";
             outfile.close();
         }
         else 

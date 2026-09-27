@@ -210,6 +210,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 		std::vector<fs::path> images;
 		int ringWidth = 0;
 		int ringHeight = 0;
+		float radius_mm=1;
 	};
 	
 	std::vector<RingInfo> rings;
@@ -223,40 +224,27 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	int FrameHeight=static_cast<int>(ringParamMap["FrameHeight"][0]+0.001f);
 	const std::vector<float> theta0s=ringParamMap["StartDegree"]; 
 	const std::vector<float> theta1s=ringParamMap["EndDegree"];
+	const std::vector<float> radii=ringParamMap["Radius"]; 
 	const std::vector<float> validRows_float=ringParamMap["ValidLines"];
 	const float pixelsize=ringParamMap["PixelSizeUm"][0];
 	std::vector<int> validRows(validRows_float.size());
 	std::transform(validRows_float.begin(), validRows_float.end(), validRows.begin(), [](float f){ return static_cast<int>(f+0.001f); });
 	std::println("Read {} rings from CSV. ValidRows: {}",validRows.size(),validRows[0]);
-	bool format_monolithic=false;//every ring has a separate directory with images
-	while(format_monolithic) //every ring is a single image 
+
+	while(true)
 	{ 
-		fs::path img_path=fs::path(path_channel)/std::format("AlgoImages/ch1r{}.png",kr);
-		std::println("Checking ring image: {}",img_path.string());
-		if(!fs::exists(img_path))
+		fs::path ring_dir=fs::path(path_channel)/std::format("Ring {}",kr);
+		if(!fs::exists(ring_dir)||!fs::is_directory(ring_dir))
 			break;
-		std::println("Found ring image: {}",img_path.string());
-		RingInfo info; 
-		info.kr = kr;
-		info.images.push_back(img_path);
-		info.ringWidth=FrameWidth;
-		info.ringHeight=validRows[info.kr]; // Use the validRows from CSV for ringHeight
-		rings.push_back(info);
-		kr++;
-	}
-	while(!format_monolithic)//every ring has a separate directory with a sequence of images
-	{
-		fs::path ring_dir = fs::path(path_channel) / std::format("Ring {}", kr);
-		if (!fs::exists(ring_dir) || !fs::is_directory(ring_dir))
-			break;
-		std::println("Found ring directory: {}", ring_dir.string());
+		std::println("Found ring directory: {}",ring_dir.string());
 
 		RingInfo info;
-		info.kr = kr;
+		info.kr=kr;
+		info.radius_mm=radii[kr];
 		auto numImages=std::distance(fs::directory_iterator(ring_dir),fs::directory_iterator{});
 		info.images.reserve(static_cast<size_t>(numImages));
-		for (int i = 0; i < static_cast<int>(numImages); ++i)
-			info.images.emplace_back(ring_dir / std::format("{}.tiff", i));
+		for(int i=0; i<static_cast<int>(numImages); ++i)
+			info.images.emplace_back(ring_dir/std::format("{}.tiff",i));
 
 		ASSERT_NE(info.images.size(),0u)<<"No images found in ring directory: "<<ring_dir.string();
 		cv::Mat first_img=cv::imread(info.images[0].string(),CV_8UC1);
@@ -270,7 +258,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	int TotalRings = static_cast<int>(rings.size());
 	std::println("FrameWidth={}, FrameHeight={}, TotalRings={}", FrameWidth, FrameHeight, TotalRings);
 	for (const auto& ring : rings)
-		std::println("Ring {}: RingWidth={}, RingHeight={}, StartDegree={}, EndDegree={}", ring.kr, ring.ringWidth, ring.ringHeight, theta0s[ring.kr], theta1s[ring.kr]);
+		std::println("Ring {}: RingWidth={}, RingHeight={}, StartDegree={}, EndDegree={}, Radius={}", ring.kr, ring.ringWidth, ring.ringHeight, theta0s[ring.kr], theta1s[ring.kr],ring.radius_mm);
 
 	ASSERT_GT(TotalRings, 0) << "No ring directories found.";
 	ASSERT_GT(FrameWidth, 0) << "Could not determine FrameWidth.";
@@ -292,8 +280,9 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	{
 		float theta0 = theta0s[ring.kr], theta1 = theta1s[ring.kr]; //triggered start and end angles in degrees
 		//float theta0 = -68.0f, theta1 = theta0 + 360.0f; //triggered start and end angles in degrees
-		std::string coordCaliSetting_jsonstr = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggerStart\":{{\"T\":{}}}, \"TriggerEnd\":{{\"T\":{}}}}}", 
-                                             ring.ringWidth, ring.ringHeight, theta0, theta1);
+		std::string coordCaliSetting_jsonstr = std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggerStart\":{{\"T\":{},\"R\":{}}}, \"TriggerEnd\":{{\"T\":{}}}}}", 
+                                             ring.ringWidth, ring.ringHeight, theta0,ring.radius_mm, theta1);
+		//std::println("Ring {} coordCaliSetting JSON string: {}",ring.kr,coordCaliSetting_jsonstr);
 		std::string processSetting_jsonstr=std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"FrameWidth\":{}, \"FrameHeight\":{}}}",
 			ring.ringWidth,ring.ringHeight,FrameWidth,FrameHeight);
 		auto res_beginring = BeginRingProcess(channel, ring.kr, processSetting_jsonstr.c_str(),
@@ -303,13 +292,20 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 		std::println("Ring {} started with ringWidth={}, ringHeight={}, validRows={}",ring.kr,ring.ringWidth,ring.ringHeight,rows_remaining);
 		for (const auto& img_path : ring.images)
 		{
-			cv::Mat img = cv::imread(img_path.string(), CV_16UC1);
+			cv::Mat imgin = cv::imread(img_path.string(), cv::IMREAD_UNCHANGED);
+			cv::Mat img;
+			if(imgin.type()==CV_8UC1)
+				imgin.convertTo(img,CV_16UC1,16.0); // we are simulating 12-bit data in a 16-bit container, so the lowest 4 bits and the highest 4 bits are zero, and the middle 8 bits contain the actual data
+			else if(imgin.type()==CV_16UC1)
+				img=imgin;
+			else
+				throw std::runtime_error(std::format("Input image {} is neither CV_8U nor CV_16U",img_path.string()));
+			//cv::Mat img = cv::imread(img_path.string(), CV_16UC1);
 			//cv::Mat img8 = cv::imread(img_path.string(), CV_8UC1);
 			//cv::Mat img;//convert to 16-bit unsigned single channel, but the greatest 4 bit are zero, simulating 12-bit data in a 16-bit container
-			//img8.convertTo(img,CV_16UC1,16.0); // we are simulating 12-bit data in a 16-bit container, so the lowest 4 bits and the highest 4 bits are zero, and the middle 8 bits contain the actual data
 			ASSERT_FALSE(img.empty()) << "Failed to load image: " << img_path.string(); 
 			int frame_height=std::min(img.rows,rows_remaining);
-			std::println("Adding frame from {} ({}x{}) to ring {} with frame_height={} and rows_remaining={}",img_path.string(),img.cols,img.rows,ring.kr,frame_height,rows_remaining);
+			//std::println("Adding frame from {} ({}x{}) to ring {} with frame_height={} and rows_remaining={}",img_path.string(),img.cols,img.rows,ring.kr,frame_height,rows_remaining);
 			auto res_addblock = AddRingProcessFrame(channel, ring.kr, img.data, img.cols, img.rows, frame_height, 0, 1);
 			rows_remaining-=frame_height;
 			ASSERT_EQ(res_addblock.IsSuccess,true)<<"AddRingProcessFrame failed: "<<res_addblock.ErrorMessage;

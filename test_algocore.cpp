@@ -17,7 +17,7 @@ TEST(core,flatten)
 		cv::Mat img;
 		img8b.convertTo(img,CV_16U,16.0f); // Convert to 16-bit unsigned
 		ASSERT_FALSE(img.empty())<<"Failed to load image: "<<imgpath;
-		cv::Mat flattened=flatten(img,std::format("{}/flattenning_{}.txt",path_output,kr));
+		cv::Mat flattened=flatten(img,1.0f,1.0f,std::format("{}/flattenning_{}.txt",path_output,kr));
 		ASSERT_FALSE(flattened.empty())<<"Flattening failed.";
 		//cv::imwrite(std::format("{}/flatten_result_{}.png",path_output,kr),flattened*4.0f);
 	}
