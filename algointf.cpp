@@ -112,6 +112,9 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	// Find the largest component (excluding background label 0)
 	int maxLabel=1;
 	int maxArea=stats.at<int>(1,cv::CC_STAT_AREA);
+	std::ofstream ofs_detreg("detected_regions.txt");//save a file for statistics of detected regions of column id,area,intg 
+	ofs_detreg<<"ID\tArea(pixels)\tintg"<<std::endl;
+
 	for(int lbl=1; lbl<nLabels; ++lbl)
 	{
 		float intg=0;
@@ -127,6 +130,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 				if(labels.at<int>(i,j)==lbl)
 				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
 					intg+=image.at<float>(i,j);
+		ofs_detreg<<std::format("{}\t\{}\t{}\n",lbl,area,intg);
 
 		//ignore the superficial components that are not part of the binary mask
 		cv::Mat componentMask;
@@ -184,7 +188,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			maxArea=area;
 			maxLabel=lbl;
 		}
-		if(defect.CoordR>95000) continue;
+		if(defect.CoordR>98000) continue;
 		if(intg<Intensities[1])
 		{
 			//std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
