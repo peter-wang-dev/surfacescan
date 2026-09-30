@@ -130,7 +130,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 				if(labels.at<int>(i,j)==lbl)
 				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
 					intg+=image.at<float>(i,j);
-		ofs_detreg<<std::format("{}\t\{}\t{}\n",lbl,area,intg);
+		ofs_detreg<<std::format("{}\t{}\t{}\n",lbl,area,intg);
 
 		//ignore the superficial components that are not part of the binary mask
 		cv::Mat componentMask;
@@ -188,7 +188,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			maxArea=area;
 			maxLabel=lbl;
 		}
-		if(defect.CoordR>98000) continue;
+		if(defect.CoordR>100000) continue;
 		if(intg<Intensities[1])
 		{
 			//std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
@@ -507,7 +507,9 @@ extern "C"
 	ALGO_API AlgoResult BeginRingProcess(DetectChannel channelID,int ringIndex,
 		const char* processSetting,const char* hazeCaliSetting,const char* coordCaliSetting)
 	{
-		(void)channelID; (void)ringIndex; (void)processSetting; (void)hazeCaliSetting; 
+		(void)hazeCaliSetting; 
+		write_log(LogType::Info,"BeginRingProcess",std::format("processSetting: {}",processSetting).c_str());
+		write_log(LogType::Info,"BeginRingProcess",std::format("coordCaliSetting: {}",coordCaliSetting).c_str());
 		json coordCaliJson=json::parse(coordCaliSetting); 
 		//std::cout<<coordCaliJson.dump(4)<<std::endl;
 		int RingWidth=coordCaliJson["RingWidth"];
@@ -567,6 +569,7 @@ extern "C"
 		try
 		{ 
 			cv::Mat rimg;
+			write_log(LogType::Info,"EndRingProcess",std::format("Trying to copy ring data...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 			{// lock scope for ring image processing
 				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 				rimg=rings[channelID][ringIndex].img.clone(); // or assign without clone if you prefer shared header
@@ -574,7 +577,8 @@ extern "C"
 				//rings[channelID][ringIndex].img.convertTo(rimg,CV_32FC1); // convert to float for processing
 				//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
 			}
-			imgprobe(rimg,true);
+			//write_log(LogType::Info,"EndRingProcess",std::format("Trying to copy ring data...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
+			//imgprobe(rimg,true);
 			write_log(LogType::Info,"EndRingProcess",std::format("Estimating column intensity...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
 			auto col_intensity=estimate_column_intensity_stat(rimg);
 			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
@@ -584,8 +588,11 @@ extern "C"
 				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 				float W=static_cast<float>(rimg.cols);
 				float r=rings[channelID][ringIndex].radius_mm;
-				r_inner_mm=r-pixelsize/1000.0f*W/2;
-				r_outer_mm=r+pixelsize/1000.0f*W/2;
+				int ninside=rings[channelID].size()-ringIndex-1;//number of ring inside of current rings
+				r_inner_mm=W*ninside*pixelsize/1000.0f;
+				r_outer_mm=W*(ninside+1)*pixelsize/1000.0f;
+				//r_inner_mm=r-pixelsize/1000.0f*W/2;
+				//r_outer_mm=r+pixelsize/1000.0f*W/2;
 				std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
 				std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
 			}

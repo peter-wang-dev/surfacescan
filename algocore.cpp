@@ -125,42 +125,42 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
     }
 	//auto colavg=estimate_column_intensity_stat(image);
 
-    // Step 2: Scale vector so max element is 1.0f, and precompute inverse factors
-    double min_val, max_val, mean_val;
-	const auto [min_it, max_it] = std::minmax_element(colavg.begin(), colavg.end());
-	min_val = *min_it;
-	max_val = *max_it;
-	mean_val=std::accumulate(colavg.begin(),colavg.end(),0.0)/colavg.size();
-	std::println("Flattening: min={}, max={}, mean={}",min_val,max_val,mean_val);
-
-	double desired=100.0; // Desired average intensity for the flattened image
-    if(max_val>0.0)
-    { 
-        for (int x = 0; x < W; ++x) 
-        {
-            W_elements[x]=colavg[x]/desired;
-            if (colavg[x] > 1e-6) 
-                inv_scales[x] = desired / colavg[x];
-            else 
-                inv_scales[x] = 1.0; 
-        }
-    }
-
-    // Step 3: Multiply each column by its inverse scale
-    cv::Mat result(image.size(), CV_32F);
     try
-    {
+	{
+		// Step 2: Scale vector so max element is 1.0f, and precompute inverse factors
+		double min_val,max_val,mean_val;
+		const auto [min_it,max_it]=std::minmax_element(colavg.begin(),colavg.end());
+		min_val=*min_it;
+		max_val=*max_it;
+		mean_val=std::accumulate(colavg.begin(),colavg.end(),0.0)/colavg.size();
+		std::println("Flattening: min={}, max={}, mean={}",min_val,max_val,mean_val);
 
-        #pragma omp parallel for schedule(static)
-        for (int y = 0; y < H; ++y) {
-            const ushort* src_row = image.ptr<ushort>(y);
-            float* dst_row = result.ptr<float>(y);
-            for (int x = 0; x < W; ++x) 
-                dst_row[x] = static_cast<float>(src_row[x] * inv_scales[x]);
-            //ushort* dst_row = result.ptr<ushort>(y);
-            //for (int x = 0; x < W; ++x) 
-            //    dst_row[x] = cv::saturate_cast<ushort>(src_row[x] * inv_scales[x]);
-        }
+		double desired=100.0; // Desired average intensity for the flattened image
+		if(max_val>0.0)
+		{
+			for(int x=0; x<W; ++x)
+			{
+				W_elements[x]=colavg[x]/desired;
+				if(colavg[x]>1e-6)
+					inv_scales[x]=desired/colavg[x];
+				else
+					inv_scales[x]=1.0;
+			}
+		}
+
+		// Step 3: Multiply each column by its inverse scale
+		cv::Mat result(image.size(),CV_32F);
+#pragma omp parallel for schedule(static)
+		for(int y=0; y<H; ++y) {
+			const ushort* src_row=image.ptr<ushort>(y);
+			float* dst_row=result.ptr<float>(y);
+			for(int x=0; x<W; ++x)
+				dst_row[x]=static_cast<float>(src_row[x]*inv_scales[x]);
+			//ushort* dst_row = result.ptr<ushort>(y);
+			//for (int x = 0; x < W; ++x) 
+			//    dst_row[x] = cv::saturate_cast<ushort>(src_row[x] * inv_scales[x]);
+		}
+		return result;
     }
 	catch(const std::exception& e)
 	{
@@ -172,34 +172,34 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
 	//std::println("flattened output range: min={}, max={}",minval,maxval);
 	//std::println("Flattening complete. Image type: {}, Size: {}x{}",image.type(),W,H);
 
-    // --- Debugging output generation ---
-    if(debugfilename!="") 
-    { 
-        // Calculate the average of each column in the output image
-        //cv::Mat out_col_avg;
-        //cv::reduce(result,out_col_avg,0,cv::REDUCE_AVG,CV_32F);
-        //float* out_avg_ptr=out_col_avg.ptr<float>(0);
-        auto colavg_out=estimate_column_intensity_stat(result);
+  //  // --- Debugging output generation ---
+  //  if(debugfilename!="") 
+  //  { 
+  //      // Calculate the average of each column in the output image
+  //      //cv::Mat out_col_avg;
+  //      //cv::reduce(result,out_col_avg,0,cv::REDUCE_AVG,CV_32F);
+  //      //float* out_avg_ptr=out_col_avg.ptr<float>(0);
+  //      auto colavg_out=estimate_column_intensity_stat(result);
 
-        // Save to debug file
-        std::ofstream outfile(debugfilename);
-        if(outfile.is_open()) 
-        {
-            outfile<<"Index\tInput_Avg\tW_Element\tInput_Avg/W_Element\tColAvg_Out\n";
-            for(int x=0; x<W; ++x) 
-                //outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<out_avg_ptr[x]<<"\n";
-				outfile<<std::format("{}\t{:.10f}\t{:.10f}\t{:.10f}\t{:.10f}\n",x,colavg[x],W_elements[x],colavg[x]/W_elements[x],colavg_out[x]);
-                //outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<colavg_out[x]<<"\n";
-            outfile.close();
-        }
-        else 
-            std::cerr<<"Warning: Could not open "<<debugfilename<<" for writing.\n";
-		//print statistics on out_avg_ptr
-		std::cout<<std::format("Output averages ({}): min={:.4f}, max={:.4f}, mean={:.4f}",debugfilename,min_val,max_val,mean_val)<<std::endl;
-    }
+  //      // Save to debug file
+  //      std::ofstream outfile(debugfilename);
+  //      if(outfile.is_open()) 
+  //      {
+  //          outfile<<"Index\tInput_Avg\tW_Element\tInput_Avg/W_Element\tColAvg_Out\n";
+  //          for(int x=0; x<W; ++x) 
+  //              //outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<out_avg_ptr[x]<<"\n";
+		//		outfile<<std::format("{}\t{:.10f}\t{:.10f}\t{:.10f}\t{:.10f}\n",x,colavg[x],W_elements[x],colavg[x]/W_elements[x],colavg_out[x]);
+  //              //outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<colavg_out[x]<<"\n";
+  //          outfile.close();
+  //      }
+  //      else 
+  //          std::cerr<<"Warning: Could not open "<<debugfilename<<" for writing.\n";
+		////print statistics on out_avg_ptr
+		//std::cout<<std::format("Output averages ({}): min={:.4f}, max={:.4f}, mean={:.4f}",debugfilename,min_val,max_val,mean_val)<<std::endl;
+  //  }
 
     // Step 4: Return result
-    return result;
+    //return result;
 }
 
 //cv::Mat dehaze(cv::Mat image)
