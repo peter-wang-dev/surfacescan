@@ -5,19 +5,20 @@ import std;
 std::vector<double> estimate_column_intensity(cv::Mat image)
 {
 	if(image.empty())
-		return {};
+		throw std::invalid_argument("Input image is empty");
+	if(image.type()!=CV_8UC1&&image.type()!=CV_16UC1&&image.type()!=CV_32FC1)
+		throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
+    if (image.dims != 2 || image.rows <= 0 || image.cols <= 0)
+        throw std::invalid_argument("Input image must be a non-empty 2D image");
 
-	if(image.type()!=CV_8UC1&&image.type()!=CV_16UC1)
-		throw std::invalid_argument("Input image must be single-channel 8-bit or 16-bit");
 	int W=image.cols;
 	// Calculate the average intensity of each column
 	cv::Mat col_avg;
 	cv::reduce(image,col_avg,0,cv::REDUCE_AVG,CV_64F);
 	double* avg_ptr=col_avg.ptr<double>(0);
 	std::vector<double> column_intensities(W);
-	for(int x=0; x<W; ++x) {
+	for(int x=0; x<W; ++x) 
 		column_intensities[x]=avg_ptr[x];
-	}
 	return column_intensities;
 }
 template <typename T>
@@ -33,17 +34,15 @@ void estimate_column_intensity_stat_impl(const cv::Mat& image, std::vector<doubl
     // Use a fixed base seed to ensure cross-run determinism
     const unsigned int base_seed = 12345; 
 
-    #pragma omp parallel
+    //#pragma omp parallel
     {
-        // Allocate thread-local buffer once per thread to maintain memory efficiency
-        std::vector<T> samples(N);
-
-        #pragma omp for schedule(dynamic)
-        for (int x = 0; x < W; ++x) {
-            // Seed RNG deterministically per column
-            // This guarantees column 'x' always gets the same sequence of random numbers
-            std::mt19937 rng(base_seed + x);
-            std::uniform_int_distribution<int> dist(0, H - 1);
+        //#pragma omp for schedule(dynamic)
+		//#pragma omp for
+		std::vector<T> samples(N);
+		std::mt19937 rng(base_seed); // Seed RNG deterministically per column
+		std::uniform_int_distribution<int> dist(0, H - 1);
+        for (int x = 0; x < W; ++x) 
+        {
             
             // 1. Sample N=10000 values randomly
             for (int i = 0; i < N; ++i) {
@@ -66,11 +65,14 @@ void estimate_column_intensity_stat_impl(const cv::Mat& image, std::vector<doubl
 }
 
 // Main interface function. 
-std::vector<double> estimate_column_intensity_stat(cv::Mat image) 
+std::vector<double> estimate_column_intensity_stat(const cv::Mat &image) 
 {
-    if (image.empty()) {
-        return {};
-    } 
+    if (image.empty())
+        throw std::invalid_argument("Input image is empty");
+	if(image.type()!=CV_8UC1&&image.type()!=CV_16UC1&&image.type()!=CV_32FC1)
+		throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
+    if (image.dims != 2 || image.rows <= 0 || image.cols <= 0)
+        throw std::invalid_argument("Input image must be a non-empty 2D image");
 
     std::vector<double> result(image.cols, 0.0);
 
@@ -133,7 +135,7 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
 		min_val=*min_it;
 		max_val=*max_it;
 		mean_val=std::accumulate(colavg.begin(),colavg.end(),0.0)/colavg.size();
-		std::println("Flattening: min={}, max={}, mean={}",min_val,max_val,mean_val);
+		//std::println("Flatten(): min={}, max={}, mean={}",min_val,max_val,mean_val);
 
 		double desired=100.0; // Desired average intensity for the flattened image
 		if(max_val>0.0)

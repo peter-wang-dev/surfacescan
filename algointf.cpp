@@ -45,8 +45,8 @@ void imgprobe(cv::Mat img, bool continue_flag=false)
 {
 	double minVal,maxVal;
 	cv::minMaxLoc(img,&minVal,&maxVal);
-	std::println("Probed image: type={}, height={}, width={}",img.type(),img.rows,img.cols);
-	std::println("Range of elements in probed image : [{},{}]",minVal,maxVal);
+	write_log(LogType::Info,"imgprobe",std::format("Probed image: type={}, height={}, width={}",img.type(),img.rows,img.cols).c_str());
+	write_log(LogType::Info,"imgprobe",std::format("Range of elements in probed image : [{},{}]",minVal,maxVal).c_str());
 	if(!continue_flag)
 		throw std::runtime_error("Intentional exception for image probing");
 }
@@ -56,11 +56,12 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	//CV_Assert(image.type() == CV_16UC1);
 	CV_Assert(image.type() == CV_32F);
 	// Output verification
-	std::cout<<"Intensities: ";
-	for(double val:Intensities) std::cout<<val<<" ";
-	std::cout<<"\nDSizes: ";
-	for(double val:DSizes) std::cout<<val<<" ";
-	std::cout<<"\n";
+	std::stringstream ss;
+	ss<<"Intensities: ";
+	for(double val:Intensities) ss<<val<<" "; ss<<"\nDSizes: ";
+	for(double val:DSizes) ss<<val<<" ";
+	write_log(LogType::Info,"inspect",ss.str().c_str());
+	//std::cout<<"\n";
 	if(Intensities.size()!=DSizes.size())
 	{
 		write_log(LogType::Error,"inspect","Intensities and DSizes vectors must have the same size");
@@ -74,7 +75,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 
 	std::vector<DefectInfoStruct> defects;
 	//auto intensity=Intensities[1]/2+1.0f;
-	const float intensity_threshold=80;
+	const float intensity_threshold=50;
 	//auto intensity_next=4096;
 	//if(Intensities.size()>2)
 	//	intensity_next=Intensities[2];
@@ -92,7 +93,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	// Connected components with stats
 	cv::Mat labels,stats,centroids;
 	int nLabels=cv::connectedComponentsWithStats(closure,labels,stats,centroids,8,CV_32S);
-	std::println("Integration threshold: {},  Found {} potential regions. Analyzing...",intensity_threshold,nLabels-1);
+	write_log(LogType::Info,"inspect",std::format("Integration threshold: {},  Found {} potential regions. Analyzing...",intensity_threshold,nLabels-1).c_str()	);
 	if(nLabels<=1) // no foreground components found
 		return {};
 	auto f_size=[&Intensities,&DSizes](double intensity)->double //linear interpolation
@@ -188,7 +189,8 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			maxArea=area;
 			maxLabel=lbl;
 		}
-		if(defect.CoordR>100000) continue;
+		const float Rmax=image.cols/2*pixelsize*0.98f;
+		if(defect.CoordR>Rmax) continue;
 		if(intg<Intensities[1])
 		{
 			//std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
@@ -202,7 +204,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 }
 cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const float pixelsize)
 {
-	write_log(LogType::Info,"drawmap","Drawing defect annotations on image");
+	write_log(LogType::Info,"drawmap","Drawing defect annotations");
 	cv::Mat defect_annotation;
 	cv::cvtColor(image,defect_annotation,cv::COLOR_GRAY2BGR);
 	//int numdraw=0;
@@ -501,7 +503,7 @@ extern "C"
 		if(chsettings[channelID]["ring"].find("DebugOutput")!=chsettings[channelID]["ring"].end())
 			DebugOutput=chsettings[channelID]["ring"]["DebugOutput"];
 		pixelsize=chsettings[channelID]["classification"]["PixelSize"];
-		std::println("setting pixelsize as {}",pixelsize);
+		//std::println("setting pixelsize as {}",pixelsize);
 		return AlgoResult::Success();
 	}
 	ALGO_API AlgoResult BeginRingProcess(DetectChannel channelID,int ringIndex,
@@ -526,7 +528,7 @@ extern "C"
 		float theta1_angle=coordCaliJson["TriggerEnd"]["T"];
 		float thetadiff_angle=theta1_angle-theta0_angle;
 		ring.radius_mm=coordCaliJson["TriggerStart"]["R"];
-		std::println("BeginRing: radius_mm={}",ring.radius_mm);
+		//std::println("BeginRing: radius_mm={}",ring.radius_mm);
 		ring.theta0=theta0_angle/180.0f * static_cast<float>(CV_PI); //coverting to radians if needed, but assuming the input is in degrees or radians as required
 		while(ring.theta0>twopi) ring.theta0-=twopi;
 		ring.theta1=ring.theta0+thetadiff_angle/180.0f * static_cast<float>(CV_PI); 
@@ -564,6 +566,8 @@ extern "C"
 
 	ALGO_API AlgoResult EndRingProcess(DetectChannel channelID,int ringIndex, bool* isOverLoad,bool* isHazeOverload)
 	{
+		(void)isOverLoad; (void)isHazeOverload;
+		(void)ringIndex;(void)channelID;
 		//if(isOverLoad)*isOverLoad=false; 
 		//if(isHazeOverload)*isHazeOverload=false;
 		return AlgoResult::Success();
@@ -603,36 +607,48 @@ extern "C"
 		}
 
 		//PROCESS OF EACH RING 
-		for(int kr=0; kr<N; kr++)
+		try
 		{
-			cv::Mat rimg=rings_copy[kr].img;
-			auto col_intensity=estimate_column_intensity_stat(rimg);
-			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),kr,rimg.cols,rimg.rows).c_str());
-			float r_inner_mm,r_outer_mm;
+			for(int kr=0; kr<N; kr++)
 			{
-				float W=static_cast<float>(rimg.cols);
-				float r=rings_copy[kr].radius_mm;
-				int ninside=rings_copy.size()-kr-1;//number of ring inside of current rings
-				r_inner_mm=W*ninside*pixelsize/1000.0f;
-				r_outer_mm=W*(ninside+1)*pixelsize/1000.0f;
-				//r_inner_mm=r-pixelsize/1000.0f*W/2;
-				//r_outer_mm=r+pixelsize/1000.0f*W/2;
-				std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
-				std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
+				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, analyzing ring {}",static_cast<int>(channelID),kr).c_str());
+				const cv::Mat &rimg=rings_copy[kr].img;
+				auto col_intensity=estimate_column_intensity_stat(rimg);
+				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, column intensity estimated for ring {}",static_cast<int>(channelID),kr).c_str());
+				float r_inner_mm,r_outer_mm;
+				{
+					float w=static_cast<float>(rimg.cols);
+					int ninside=static_cast<int>(rings_copy.size())-kr-1;//number of ring inside of current rings
+					r_inner_mm=w*ninside*pixelsize/1000.0f;
+					r_outer_mm=w*(ninside+1)*pixelsize/1000.0f;
+					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {}: r_inner_mm={}, r_outer_mm={}",static_cast<int>(channelID),kr,r_inner_mm,r_outer_mm).c_str());	
+					//r_inner_mm=r-pixelsize/1000.0f*W/2;
+					//r_outer_mm=r+pixelsize/1000.0f*W/2;
+					//std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
+					//std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
+				}
+				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, dehazing ring {}",static_cast<int>(channelID),kr).c_str());
+				cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("test_output/flattenning_{}.txt",kr):"");
+				double minval,maxval;
+				cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
+				//std::println("flattened range: min={}, max={}",minval,maxval); 
+				cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
+				auto haze_col_intensity=estimate_column_intensity_stat(flattened);
+				for(int x=0; x<haze.cols; ++x)
+					haze.col(x)=haze_col_intensity[x];
+				cv::Mat dehazed;
+				//haze.convertTo(haze_float,CV_32FC1);	
+				cv::max(0,flattened-haze,dehazed);
+				rings_copy[kr].dehazed=dehazed;
+				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {} ready for inspection",static_cast<int>(channelID),kr).c_str());
 			}
-			cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("test_output/flattenning_{}.txt",kr):"");
-			double minval,maxval;
-			cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
-			//std::println("flattened range: min={}, max={}",minval,maxval); 
-			cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
-			auto haze_col_intensity=estimate_column_intensity_stat(flattened);
-			for(int x=0; x<haze.cols; ++x)
-				haze.col(x)=haze_col_intensity[x];
-			cv::Mat dehazed;
-			//haze.convertTo(haze_float,CV_32FC1);	
-			cv::max(0,flattened-haze,dehazed);
-			rings_copy[kr].dehazed=dehazed.clone();
 		}
+		catch(const std::exception& e)
+		{
+			write_log(LogType::Error,"EndChannelProcess",std::format("channelID={}, exception during processing ring images: {}",static_cast<int>(channelID),e.what()).c_str());
+			return AlgoResult::Failure(e.what());
+		}
+
 
 		//FULL MAP CONSTRUCTION
 		//Now we find the pixel value for each pixel in the mergedImage by mapping it to the corresponding ring image
@@ -678,7 +694,7 @@ extern "C"
  
 				if(col>=cols||row<0||col<0)
 				{
-					std::println("Out of bounds: ringIndex={}, row={}, col={}, rows={}, cols={}",idxr,row,col,rows,cols);
+					write_log(LogType::Warning,"EndChannelProcess",std::format("Out of bounds: ringIndex={}, row={}, col={}, rows={}, cols={}",idxr,row,col,rows,cols).c_str());
 					continue; // out of bounds, skip
 				}
 				row=std::clamp(row,0,rows-1);
@@ -770,7 +786,7 @@ extern "C"
 				cv::Mat dehazed_16UC1; 
 				dehazed.convertTo(dehazed_16UC1,CV_16UC1); 
 				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize);
-				cv::imwrite(dir+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
+				//cv::imwrite(dir+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
 				cv::imwrite(dir+std::format("/ch{}_dehazed_annotated_8ev.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
 				dehazed.release();
 				write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
@@ -779,7 +795,7 @@ extern "C"
 				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
 				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
-				cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
+				//cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
 				//cv::imwrite(dir+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256,outputparams); 
 			}
 
