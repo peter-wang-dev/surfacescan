@@ -566,105 +566,7 @@ extern "C"
 	{
 		//if(isOverLoad)*isOverLoad=false; 
 		//if(isHazeOverload)*isHazeOverload=false;
-		try
-		{ 
-			cv::Mat rimg;
-			write_log(LogType::Info,"EndRingProcess",std::format("Trying to copy ring data...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-			{// lock scope for ring image processing
-				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
-				rimg=rings[channelID][ringIndex].img.clone(); // or assign without clone if you prefer shared header
-				//imgprobe( rimg=rings[channelID][ringIndex].img.clone()); 
-				//rings[channelID][ringIndex].img.convertTo(rimg,CV_32FC1); // convert to float for processing
-				//cv::flip(rimg.clone(),rimg,0); //flip the image vertically
-			}
-			//write_log(LogType::Info,"EndRingProcess",std::format("Trying to copy ring data...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-			//imgprobe(rimg,true);
-			write_log(LogType::Info,"EndRingProcess",std::format("Estimating column intensity...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-			auto col_intensity=estimate_column_intensity_stat(rimg);
-			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-			float r_inner_mm,r_outer_mm;
-			{
-				std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
-				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
-				float W=static_cast<float>(rimg.cols);
-				float r=rings[channelID][ringIndex].radius_mm;
-				int ninside=rings[channelID].size()-ringIndex-1;//number of ring inside of current rings
-				r_inner_mm=W*ninside*pixelsize/1000.0f;
-				r_outer_mm=W*(ninside+1)*pixelsize/1000.0f;
-				//r_inner_mm=r-pixelsize/1000.0f*W/2;
-				//r_outer_mm=r+pixelsize/1000.0f*W/2;
-				std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
-				std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
-			}
-			cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("test_output/flattenning_{}.txt",ringIndex):"");
-			write_log(LogType::Info,"EndRingProcess",std::format("Column intensity calibrated. ChannelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-			double minval,maxval;
-			cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
-			//std::println("flattened range: min={}, max={}",minval,maxval);
-			write_log(LogType::Info,"EndRingProcess",std::format("Data range after calibration: [{},{}]. ChannelID={}, ringIndex={}, W={}, H={}",minval,maxval,static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-
-
-			cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
-			auto haze_col_intensity=estimate_column_intensity_stat(flattened);
-			for(int x=0; x<haze.cols; ++x)
-				haze.col(x)=haze_col_intensity[x];
-
-			// Minimum filter: each haze pixel is the minimum in its nnbh × nnbh neighborhood.
-			//const int nnbh=31; // neighborhood size for min filter, must be odd and > 1
-			//cv::erode( flattened, haze, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(nnbh, nnbh)), cv::Point(-1, -1), 1, cv::BORDER_REPLICATE);
-			//{ // Apply a median filter vertically within each column only.
-			//	constexpr int verticalMedianKernel=31; // Must be odd and > 1.  
-			//	#pragma omp parallel for
-			//	for(int x=0; x<flattened.cols; ++x)
-			//		cv::medianBlur(flattened.col(x),haze.col(x),verticalMedianKernel);
-			//}
-			cv::Mat dehazed;
-			//haze.convertTo(haze_float,CV_32FC1);	
-			cv::max(0,flattened-haze,dehazed);
-			//imgprobe(rimg,true);
-			//imgprobe(flattened,true);
-			//imgprobe(haze,true);
-			//imgprobe(dehazed);
-
-			//update the ring structure with the processed images
-			{// Process the ring image to detect defects and populate the defect map
-				std::lock_guard<std::mutex> lock_imgs(mtx_rings);
-				//rings[channelID][ringIndex].defectmap=dehazed.clone(); // For demonstration, copy the ring image to defect map 
-				//rings[channelID][ringIndex].haze=haze.clone();
-				rings[channelID][ringIndex].dehazed=dehazed.clone();
-				rings[channelID][ringIndex].column_intensity=col_intensity;
-			}
-			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing completed for channelID={}, ringIndex={}",static_cast<int>(channelID),ringIndex).c_str());
-			double min_val,max_val,mean_val;
-			const auto [min_it,max_it]=std::minmax_element(col_intensity.begin(),col_intensity.end());
-			min_val=*min_it;
-			max_val=*max_it;
-			mean_val=std::accumulate(col_intensity.begin(),col_intensity.end(),0.0)/col_intensity.size();
-			write_log(LogType::Info,"EndRingProcess",std::format("Ring intensity before calibration: min={},max={},mean={}",min_val,max_val,mean_val).c_str());
-
-			//save data to disk 
-			std::string dir;
-			{
-				std::lock_guard<std::mutex> gd(mtx_chsettings);
-				//std::cout<<chsettings[channelID]["ring"];
-				dir=chsettings[channelID]["ring"]["ImageSaveDirectory"];
-			}
-			if(dir!="")
-			{
-				//auto fn=dir+std::format("/ch{}r{}.png",static_cast<int>(channelID),ringIndex);
-				//cv::imwrite(fn,rimg);
-				//write_log(LogType::Info,"EndRingProcess",std::format("Images saved for channelID={}, ringIndex={}, image size={}x{}",static_cast<int>(channelID),ringIndex,rimg.cols,rimg.rows).c_str());
-				////auto fn_dehazed=dir+std::format("/ch{}r{}_dehazed.png",static_cast<int>(channelID),ringIndex);
-				////cv::imwrite(fn_dehazed,dehazed); 
-				//flatten(rimg,std::format("{}/flattenning_{}.txt",dir,ringIndex));
-			}
-			return AlgoResult::Success();
-		}
-		catch(const std::exception& e)
-		{
-			write_log(LogType::Error,"EndRingProcess",std::format("Exception (channel {}, ring {}): {}",static_cast<int>(channelID),ringIndex,e.what()).c_str());
-			return AlgoResult::Failure(e.what());
-		}
+		return AlgoResult::Success();
 	} 
 
 	ALGO_API AlgoResult EndChannelProcess(DetectChannel channelID,DefectInfoListStruct* descriptor)
@@ -677,7 +579,6 @@ extern "C"
 			for(const auto& r:rings[channelID])
 			{
 				rings_copy.push_back(r); 
-				//rings_copy.back().defectmap=r.defectmap.clone(); // deep copy of the defect map
 				ringWidths.push_back(r.img.cols); // store the width of each ring image 
 			}
 		}
@@ -699,6 +600,38 @@ extern "C"
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
 			N=chsettings[channelID]["ring"]["TotalRings"]; 
 			//pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
+		}
+
+		//PROCESS OF EACH RING 
+		for(int kr=0; kr<N; kr++)
+		{
+			cv::Mat rimg=rings_copy[kr].img;
+			auto col_intensity=estimate_column_intensity_stat(rimg);
+			write_log(LogType::Info,"EndRingProcess",std::format("Dehazing...channelID={}, ringIndex={}, W={}, H={}",static_cast<int>(channelID),kr,rimg.cols,rimg.rows).c_str());
+			float r_inner_mm,r_outer_mm;
+			{
+				float W=static_cast<float>(rimg.cols);
+				float r=rings_copy[kr].radius_mm;
+				int ninside=rings_copy.size()-kr-1;//number of ring inside of current rings
+				r_inner_mm=W*ninside*pixelsize/1000.0f;
+				r_outer_mm=W*(ninside+1)*pixelsize/1000.0f;
+				//r_inner_mm=r-pixelsize/1000.0f*W/2;
+				//r_outer_mm=r+pixelsize/1000.0f*W/2;
+				std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
+				std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
+			}
+			cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("test_output/flattenning_{}.txt",kr):"");
+			double minval,maxval;
+			cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
+			//std::println("flattened range: min={}, max={}",minval,maxval); 
+			cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
+			auto haze_col_intensity=estimate_column_intensity_stat(flattened);
+			for(int x=0; x<haze.cols; ++x)
+				haze.col(x)=haze_col_intensity[x];
+			cv::Mat dehazed;
+			//haze.convertTo(haze_float,CV_32FC1);	
+			cv::max(0,flattened-haze,dehazed);
+			rings_copy[kr].dehazed=dehazed.clone();
 		}
 
 		//FULL MAP CONSTRUCTION
