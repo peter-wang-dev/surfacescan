@@ -51,7 +51,7 @@ void imgprobe(cv::Mat img, bool continue_flag=false)
 		throw std::runtime_error("Intentional exception for image probing");
 }
 
-std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,DetectChannel channel)
+std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,DetectChannel channel,std::string directory="")
 {
 	//CV_Assert(image.type() == CV_16UC1);
 	CV_Assert(image.type() == CV_32F);
@@ -113,7 +113,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	// Find the largest component (excluding background label 0)
 	int maxLabel=1;
 	int maxArea=stats.at<int>(1,cv::CC_STAT_AREA);
-	std::ofstream ofs_detreg("detected_regions.txt");//save a file for statistics of detected regions of column id,area,intg 
+	std::ofstream ofs_detreg(directory+std::format("/channel{}_detected_regions.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
 	ofs_detreg<<"ID\tArea(pixels)\tintg"<<std::endl;
 
 	for(int lbl=1; lbl<nLabels; ++lbl)
@@ -746,9 +746,6 @@ extern "C"
 					DSizes={0.2,0.5};
 				}
 			}
-		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
-		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
-		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 
 		//OUTPUT
 		std::string dir; 
@@ -758,6 +755,10 @@ extern "C"
 			dir=chsettings[channelID]["ring"]["ImageSaveDirectory"];
 			//std::println("saving to {}",dir);
 		} 
+
+		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID,dir);
+		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 
 		//std::cout<<"Current path right now: "<<std::filesystem::current_path()<<"\n";
 		//std::cout<<"Target absolute path: "<<std::filesystem::absolute(dir+"/img.png")<<"\n";
