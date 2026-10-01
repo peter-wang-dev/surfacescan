@@ -322,57 +322,6 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 	ASSERT_EQ(res_endchannel.IsSuccess,true)<<"EndChannelProcess failed: "<<res_endchannel.ErrorMessage;
 	std::println("Channel test completed using data from directory {}.",path_channel);
 }
-TEST_F(AlgoTest,ChannelProcess_Offline0829)
-{ 
-	const int validRows[] = { 123800, 111335, 98869, 86403, 73937, 61471, 49005, 36540, 24074, 11608, 6233 }; 
-	const float theta0s[]={10.905f, 411.964f, 825.766f, 1219.166f, 1628.039f, 2057.782f, 2517.244f, 2949.048f, 3436.17f, 4057.179f, 5010.365f};
-	const float theta1s[]={388.934f, 799.986f, 1189.887f, 1594.156f, 2017.562f, 2467.734f, 2884.554f, 3343.148f, 3884.803f, 4677.476f, 5587.943f};
-	auto channel=DetectChannel::Narrow; 
-	int numRings=11;
-	std::string ringsettings = std::format("{{\"FrameWidth\":{}, \"FrameHeight\":{}, \"TotalRings\":{},  \"ImageSaveDirectory\":\"{}\"}}",
-                                      1984, 10000, numRings, path_output);
-	std::string DSizeCurveStr=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": 230.0, "DSize": 300.0}, {"Intensity": 250.0, "DSize": 1000.0}]})";
-	auto res_beginchannel = BeginChannelProcess(channel, ringsettings.c_str(),
-                                            "cluster_setting.json","classify_setting.json",
-                                            "coord_cali_setting.json",DSizeCurveStr.c_str());
-	ASSERT_EQ(res_beginchannel.IsSuccess,true)<<"BeginChannelProcess failed: "<<res_beginchannel.ErrorMessage;
-	for(int kr=0;kr<numRings;kr++)
-	{
-		std::string coordCaliJson_ring=std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggerStart\":{{\"T\":{}}}, \"TriggerEnd\":{{\"T\":{}}}}}",1984,validRows[kr],theta0s[kr],theta1s[kr]);
-		auto res_beginring=BeginRingProcess(channel,kr,"process_setting.json",
-			"haze_cali_setting.json",coordCaliJson_ring.c_str());
-		ASSERT_EQ(res_beginring.IsSuccess,true)<<"BeginRingProcess failed: "<<res_beginring.ErrorMessage;
-		auto imgpath=std::format("{}/fullmap/0829/ch1r{}.png",path_input,kr);
-		cv::Mat img=cv::imread(imgpath,cv::IMREAD_UNCHANGED);
-		ASSERT_FALSE(img.empty())<<"Failed to load image: "<<imgpath;
-		auto res_addblock=AddRingProcessFrame(channel,kr,img.data,img.cols,img.rows,validRows[kr],0,1);
-		ASSERT_EQ(res_addblock.IsSuccess,true)<<"AddRingProcessFrame failed: "<<res_addblock.ErrorMessage;
-		//namespace fs=std::filesystem;
-		//for(auto const& entry:fs::directory_iterator(ring_dir))
-		//{
-		//	if(!entry.is_regular_file()) continue;
-		//	auto ext=entry.path().extension().string();
-		//	std::transform(ext.begin(),ext.end(),ext.begin(),[](unsigned char c){ return std::tolower(c); });
-		//	if(ext==".png"||ext==".jpg"||ext==".jpeg"||ext==".bmp"||ext==".tif"||ext==".tiff")
-		//	{
-		//		cv::Mat img=cv::imread(entry.path().string(),cv::IMREAD_UNCHANGED);
-		//		ASSERT_FALSE(img.empty())<<"Failed to load image: "<<entry.path().string();
-		//		int frame_height=std::min(img.rows,validRows[kr]);
-		//		auto res_addblock=AddRingProcessFrame(channel,kr,img.data,img.cols,img.rows,frame_height,0,1);
-		//		ASSERT_EQ(res_addblock.IsSuccess,true)<<"AddRingProcessFrame failed: "<<res_addblock.ErrorMessage;
-		//	}
-		//}
-		auto res_endring=EndRingProcess(channel,kr,nullptr,nullptr);
-		ASSERT_EQ(res_endring.IsSuccess,true)<<"EndRingProcess failed: "<<res_endring.ErrorMessage;
-	}
-	auto res_endchannel=EndChannelProcess(channel,nullptr); 
-	std::println("EndChannelProcess result: IsSuccess={}, ErrorMessage=\"{}\"",res_endchannel.IsSuccess,res_endchannel.ErrorMessage);
-	ASSERT_EQ(res_endchannel.IsSuccess,true)<<"EndChannelProcess failed: "<<res_endchannel.ErrorMessage;
-}
-TEST_F(AlgoTest,ChannelProcess_Multiple)
-{
-
-}
 TEST_F(AlgoTest,ErrorLogs)
 {
 	Initialize();

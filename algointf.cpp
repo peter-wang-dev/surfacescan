@@ -209,7 +209,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 	cv::cvtColor(image,defect_annotation,cv::COLOR_GRAY2BGR);
 	//int numdraw=0;
 	write_log(LogType::Info,"drawmap",std::format("Total defects {}",defects.size()).c_str());
-	std::ofstream defect_log("defect_log.txt");
+	//std::ofstream defect_log("defect_log.txt");
 	for(const auto& defect:defects)
 	{
 		//if(numdraw++>500) break; // limit to the first few defects for drawing
@@ -217,7 +217,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 		cv::Point center(static_cast<int>(defect.CoordX/pixelsize+image.cols/2),static_cast<int>(defect.CoordY/pixelsize+image.rows/2));
 		cv::Size axes(static_cast<int>(defect.XSize/2/pixelsize)+20,static_cast<int>(defect.YSize/2/pixelsize)+20);
 		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,255*256),2); // red ellipse
-		defect_log<<std::format("Drawing defect at ({},{})px. R={}um, T={}deg, sizes=({},{})um, area={}px({}um^2), bin={}\n",center.x,center.y,defect.CoordR,defect.CoordT,defect.XSize,defect.YSize,defect.RawPixelsCount,defect.Area,defect.BinCode);
+		//defect_log<<std::format("Drawing defect at ({},{})px. R={}um, T={}deg, sizes=({},{})um, area={}px({}um^2), bin={}\n",center.x,center.y,defect.CoordR,defect.CoordT,defect.XSize,defect.YSize,defect.RawPixelsCount,defect.Area,defect.BinCode);
 
 		// place Area and BinCode text at the top of the ellipse, with a small offset to avoid overlap
 		int offsetY = std::max(axes.height, 10);
@@ -609,25 +609,26 @@ extern "C"
 		//PROCESS OF EACH RING 
 		try
 		{
+			#pragma omp parallel for
 			for(int kr=0; kr<N; kr++)
 			{
-				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, analyzing ring {}",static_cast<int>(channelID),kr).c_str());
+				//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, analyzing ring {}",static_cast<int>(channelID),kr).c_str());
 				const cv::Mat &rimg=rings_copy[kr].img;
 				auto col_intensity=estimate_column_intensity_stat(rimg);
-				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, column intensity estimated for ring {}",static_cast<int>(channelID),kr).c_str());
+				//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, column intensity estimated for ring {}",static_cast<int>(channelID),kr).c_str());
 				float r_inner_mm,r_outer_mm;
 				{
 					float w=static_cast<float>(rimg.cols);
 					int ninside=static_cast<int>(rings_copy.size())-kr-1;//number of ring inside of current rings
 					r_inner_mm=w*ninside*pixelsize/1000.0f;
 					r_outer_mm=w*(ninside+1)*pixelsize/1000.0f;
-					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {}: r_inner_mm={}, r_outer_mm={}",static_cast<int>(channelID),kr,r_inner_mm,r_outer_mm).c_str());	
+					//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {}: r_inner_mm={}, r_outer_mm={}",static_cast<int>(channelID),kr,r_inner_mm,r_outer_mm).c_str());	
 					//r_inner_mm=r-pixelsize/1000.0f*W/2;
 					//r_outer_mm=r+pixelsize/1000.0f*W/2;
 					//std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
 					//std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
 				}
-				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, dehazing ring {}",static_cast<int>(channelID),kr).c_str());
+				//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, dehazing ring {}",static_cast<int>(channelID),kr).c_str());
 				cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("test_output/flattenning_{}.txt",kr):"");
 				double minval,maxval;
 				cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
@@ -660,7 +661,7 @@ extern "C"
 		cv::Mat dehazed(H,W,CV_32F,cv::Scalar(0));
 		//cv::Mat dehazed(H,W,fullimage.type(),cv::Scalar(0));
 		write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, constructing full map of size={}x{}",static_cast<int>(channelID),fullimage.cols,fullimage.rows).c_str());
-#pragma omp parallel for
+		#pragma omp parallel for
 		for(int i=0;i<H;i++)
 		{
 			for(int j=0;j<W;j++)
@@ -759,6 +760,7 @@ extern "C"
 		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
 		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID,dir);
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
+		//return AlgoResult::Success();
 
 		//std::cout<<"Current path right now: "<<std::filesystem::current_path()<<"\n";
 		//std::cout<<"Target absolute path: "<<std::filesystem::absolute(dir+"/img.png")<<"\n";
@@ -781,16 +783,16 @@ extern "C"
 				//write_log(LogType::Info,"EndChannelProcess","Saving haze map");
 				//imwrite_as16bit(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
 				//cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
-				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
 				//imwrite_as16bit(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
 				//imwrite_as16bit(dir+std::format("/ch{}_dehazed_8ev.png",static_cast<int>(channelID)),dehazed*256);
 				cv::Mat dehazed_16UC1; 
 				dehazed.convertTo(dehazed_16UC1,CV_16UC1); 
 				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize);
 				//cv::imwrite(dir+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
+				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
 				cv::imwrite(dir+std::format("/ch{}_dehazed_annotated_8ev.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
 				dehazed.release();
-				write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
+				//write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
 				//cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
 				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
 				fullimage.release();
