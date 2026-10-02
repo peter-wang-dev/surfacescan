@@ -75,7 +75,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 
 	std::vector<DefectInfoStruct> defects;
 	//auto intensity=Intensities[1]/2+1.0f;
-	const float intensity_threshold=50;
+	const float intensity_threshold=1;
 	//auto intensity_next=4096;
 	//if(Intensities.size()>2)
 	//	intensity_next=Intensities[2];
@@ -114,7 +114,9 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	int maxLabel=1;
 	int maxArea=stats.at<int>(1,cv::CC_STAT_AREA);
 	std::ofstream ofs_detreg(directory+std::format("/channel{}_detected_regions.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
-	ofs_detreg<<"ID\tArea(pixels)\tintg"<<std::endl;
+	ofs_detreg<<"ID\tArea(pixels)\tintg\tX\tY"<<std::endl;
+	std::ofstream ofs_defectlog(directory+std::format("/channel{}_defectlog.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
+	ofs_defectlog<<"ID\tArea(pixels)\tintg\tX\tY"<<std::endl;
 
 	for(int lbl=1; lbl<nLabels; ++lbl)
 	{
@@ -131,7 +133,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 				if(labels.at<int>(i,j)==lbl)
 				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
 					intg+=image.at<float>(i,j);
-		ofs_detreg<<std::format("{}\t{}\t{}\n",lbl,area,intg);
+		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
 
 		//ignore the superficial components that are not part of the binary mask
 		cv::Mat componentMask;
@@ -192,12 +194,11 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		const float Rmax=image.cols/2*pixelsize*0.98f;
 		if(defect.CoordR>Rmax) continue;
 		if(intg<Intensities[1])
-		{
-			//std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
 			continue; // skip defects less than threshold the intensity range 
-		}
-		else
-			defects.push_back(defect);
+			//std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
+		//finally, add the defect to the list
+		defects.push_back(defect);
+		ofs_defectlog<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,defect.CoordX,defect.CoordY);
 	}
 	std::sort(defects.begin(),defects.end(),[](const DefectInfoStruct& a,const DefectInfoStruct& b) { return a.Area>b.Area; }); // descending order
 	return defects;
@@ -636,7 +637,7 @@ extern "C"
 				cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
 				auto haze_col_intensity=estimate_column_intensity_stat(flattened);
 				for(int x=0; x<haze.cols; ++x)
-					haze.col(x)=haze_col_intensity[x];
+					haze.col(x)=haze_col_intensity[x]*2.0f;
 				cv::Mat dehazed;
 				//haze.convertTo(haze_float,CV_32FC1);	
 				cv::max(0,flattened-haze,dehazed);

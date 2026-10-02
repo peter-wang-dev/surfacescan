@@ -301,6 +301,8 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 				img=imgin;
 			else
 				throw std::runtime_error(std::format("Input image {} is neither CV_8U nor CV_16U",img_path.string()));
+			if(ring.kr<=2) // invalidate the first few rings for experimental purposes
+				img=1;
 			//cv::Mat img = cv::imread(img_path.string(), CV_16UC1);
 			//cv::Mat img8 = cv::imread(img_path.string(), CV_8UC1);
 			//cv::Mat img;//convert to 16-bit unsigned single channel, but the greatest 4 bit are zero, simulating 12-bit data in a 16-bit container
