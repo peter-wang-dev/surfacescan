@@ -36,7 +36,7 @@ protected:
 	{
 	}
 };
-TEST_F(AlgoTest,DISABLED_calib)
+TEST_F(AlgoTest,cencal)
 { 
 	auto res_calbegin=BeginCenterCalculation({300.0, ContourFeature::Notch, 45.0, 1200, 1920, 0.1, SearchDirection::TopToBottom, 128});
 	ASSERT_EQ(res_calbegin.IsSuccess,true)<<"Center calculation failed: "<<res_calbegin.ErrorMessage;
@@ -45,8 +45,9 @@ TEST_F(AlgoTest,DISABLED_calib)
 	std::vector<cv::Mat> images;
 	namespace fs = std::filesystem;
 	//fs::path dir = path_input+"stage_center_cal/main"; 
-	fs::path dir = path_input+"stage_center_cal/20260814/181739"; 
+	//fs::path dir = path_input+"/stage_center_cal/20260814/181739"; 
 	//fs::path dir = path_input+"stage_center_cal/20260814/181856"; 
+	fs::path dir = path_input+"/stage_center_cal/261004/1324"; 
 	ASSERT_EQ(fs::exists(dir),true)<<"Directory not found: "<<dir.string();
 	ASSERT_EQ(fs::is_directory(dir),true)<<"Not a directory: "<<dir.string();
 	std::vector<fs::path> files;
@@ -301,7 +302,9 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 				img=imgin;
 			else
 				throw std::runtime_error(std::format("Input image {} is neither CV_8U nor CV_16U",img_path.string()));
-			//if(ring.kr<=3) // invalidate the first few rings for experimental purposes
+			//if(ring.kr>=5) // invalidate some rings for testing
+			//	img=1;
+			//if(ring.kr==0) //
 			//	img=1;
 			//cv::Mat img = cv::imread(img_path.string(), CV_16UC1);
 			//cv::Mat img8 = cv::imread(img_path.string(), CV_8UC1);

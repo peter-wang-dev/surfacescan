@@ -75,7 +75,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 
 	std::vector<DefectInfoStruct> defects;
 	//auto intensity=Intensities[1]/2+1.0f;
-	const float intensity_threshold=100;
+	const float intensity_threshold=80;
 	//auto intensity_next=4096;
 	//if(Intensities.size()>2)
 	//	intensity_next=Intensities[2];
@@ -134,6 +134,10 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 				if(labels.at<int>(i,j)==lbl)
 				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
 					intg+=image.at<float>(i,j);
+		//int center_x=static_cast<int>(centroids.at<double>(lbl,0));
+		//int center_y=static_cast<int>(centroids.at<double>(lbl,1));
+		//if(center_x>10000&&center_x<31000&&center_y>22000)
+		//	continue;
 		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
 
 		//ignore the superficial components that are not part of the binary mask
@@ -277,12 +281,41 @@ extern "C"
 		param_contour=parameters;
 		return AlgoResult::Success();
 	}
+	AlgoResult BeginContourCalculation(ContourCalcParameter parameters)
+	{
+		param_contour=parameters;
+		return AlgoResult::Success();
+	}
+	AlgoResult AddContourCalculationImage(const unsigned char* imageData,double stageAngle)
+	{
+		(void)stageAngle;
+		write_log(LogType::Info,"AddContourCalculationImage",std::format("Adding image of size {}x{} at stage angle {}",param_contour.ImageWidth,param_contour.ImageHeight,stageAngle).c_str());
+		cv::Mat img(param_contour.ImageHeight,param_contour.ImageWidth,CV_8UC1,const_cast<unsigned char*>(imageData));
+		if(img.empty()||img.type()!=CV_8UC1)
+		{
+			std::string hexAddress=std::format("{:p}",static_cast<const void*>(imageData));
+			write_log(LogType::Error,"AddContourCalculationImage",std::format("invalid image on address {}",hexAddress).c_str());
+			return AlgoResult::Failure("Invalid image");
+		}
+		//contourCalculationImages.push_back(img.clone()); // Store a copy of the image
+		return AlgoResult::Success();
+	}
+	AlgoResult EndContourCalculation(double* transX,double* transY,double* angle)
+	{
+		(void)angle;
+		*transX=0.0;
+		*transY=0.0;	
+		return AlgoResult::Success();
+	}
 	AlgoResult AddCenterCalculationImage(const unsigned char* imageData,double stageAngle)
 	{
 		(void)stageAngle;
+		write_log(LogType::Info,"AddCenterCalculationImage",std::format("Adding image of size {}x{} at stage angle {}",param_contour.ImageWidth,param_contour.ImageHeight,stageAngle).c_str());	
 		cv::Mat img(param_contour.ImageHeight,param_contour.ImageWidth,CV_8UC1,const_cast<unsigned char*>(imageData));
-		if(img.empty()||img.type()!=CV_8UC1) {
-			write_log(LogType::Error, "AddCenterCalculationImage", "EndCenterCalculation: invalid image");
+		if(img.empty()||img.type()!=CV_8UC1) 
+		{
+			std::string hexAddress=std::format("{:p}",static_cast<const void*>(imageData));
+			write_log(LogType::Error,"AddCenterCalculationImage",std::format("invalid image on address {}",hexAddress).c_str());
 			return AlgoResult::Failure("Invalid image");
 		}
 
@@ -334,7 +367,7 @@ extern "C"
 
 		if(pts.size()<100)
 		{
-			auto err=std::format("EndCenterCalculation: insufficient edge points {}\n",pts.size());
+			auto err=std::format("AddCenterCalculationImage: insufficient edge points {}\n",pts.size());
 			return AlgoResult::Failure(err.c_str());
 		}
 
