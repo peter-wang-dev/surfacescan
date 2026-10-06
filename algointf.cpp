@@ -615,6 +615,7 @@ extern "C"
 		//PARAMETER EXTRACTION 
 		std::vector<Ring> rings_copy;
 		std::vector<int> ringWidths;
+		std::string dirout; 
 		{
 			std::lock_guard<std::mutex> lock_imgs(mtx_rings);
 			for(const auto& r:rings[channelID])
@@ -642,6 +643,7 @@ extern "C"
 		try
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
+			dirout=chsettings[channelID]["ring"]["ImageSaveDirectory"];
 			N=chsettings[channelID]["ring"]["TotalRings"]; 
 			thr_snr=chsettings[channelID]["classification"]["SNRThreshold"];
 			if(thr_snr>10.0f) thr_snr=10.0f; // clamp to a reasonable maximum
@@ -674,7 +676,7 @@ extern "C"
 					//std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
 					//std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
 				//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, dehazing ring {}",static_cast<int>(channelID),kr).c_str());
-				cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("test_output/flattenning_{}.txt",kr):"");
+				cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("{}/radical_intensity{}.txt",dirout,kr):"");
 				double minval,maxval;
 				cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
 				//std::println("flattened range: min={}, max={}",minval,maxval); 
@@ -791,29 +793,22 @@ extern "C"
 			}
 
 		//OUTPUT
-		std::string dir; 
-		{
-			std::lock_guard<std::mutex> gd(mtx_chsettings); 
-			//std::cout<<chsettings[channelID]["ring"]<<std::endl;
-			dir=chsettings[channelID]["ring"]["ImageSaveDirectory"];
-			//std::println("saving to {}",dir);
-		} 
 
 		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
-		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,thr_snr,channelID,dir);
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,thr_snr,channelID,dirout);
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 		//return AlgoResult::Success();
 
 		//std::cout<<"Current path right now: "<<std::filesystem::current_path()<<"\n";
 		//std::cout<<"Target absolute path: "<<std::filesystem::absolute(dir+"/img.png")<<"\n";
-		write_log(LogType::Info,"EndChannelProcess",std::format("Saving images to directory: {}",dir).c_str());
-		if(dir!="")
+		write_log(LogType::Info,"EndChannelProcess",std::format("Saving images to directory: {}",dirout).c_str());
+		if(dirout!="")
 		{
 			std::vector<int> outputparams; 
 			outputparams.push_back(cv::IMWRITE_PNG_COMPRESSION);
 			outputparams.push_back(1);
 			write_log(LogType::Info,"EndChannelProcess","Saving fullmap");
-			cv::imwrite(dir+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage,outputparams); 
+			cv::imwrite(dirout+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage,outputparams); 
 			auto imwrite_as16bit=[](const std::string& path,const cv::Mat& img32f)
 				{
 					cv::Mat img;
@@ -823,25 +818,25 @@ extern "C"
 			if(DebugOutput)
 			{
 				//write_log(LogType::Info,"EndChannelProcess","Saving haze map");
-				//imwrite_as16bit(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
-				//cv::imwrite(dir+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
-				//imwrite_as16bit(dir+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
-				//imwrite_as16bit(dir+std::format("/ch{}_dehazed_8ev.png",static_cast<int>(channelID)),dehazed*256);
+				//imwrite_as16bit(dirout+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
+				//cv::imwrite(dirout+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
+				//imwrite_as16bit(dirout+std::format("/ch{}_dehazed.png",static_cast<int>(channelID)),dehazed);
+				//imwrite_as16bit(dirout+std::format("/ch{}_dehazed_8ev.png",static_cast<int>(channelID)),dehazed*256);
 				cv::Mat dehazed_16UC1; 
 				dehazed.convertTo(dehazed_16UC1,CV_16UC1); 
 				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize);
-				//cv::imwrite(dir+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
+				//cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
-				cv::imwrite(dir+std::format("/ch{}_dehazed_annotated_8ev.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
+				cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated_8ev.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
 				dehazed.release();
 				//write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
 				//cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
 				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
 				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
-				cv::imwrite(dir+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
-				//cv::imwrite(dir+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
-				//cv::imwrite(dir+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256,outputparams); 
+				cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
+				//cv::imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
+				//cv::imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256,outputparams); 
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");

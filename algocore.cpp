@@ -96,7 +96,7 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
     //if (image.type() != CV_8UC1 && image.type() != CV_16UC1 && image.type() != CV_32FC1) 
         //throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
     if (image.type() != CV_16UC1) 
-        throw std::invalid_argument("Input image must be single-channel  16-bit");
+        throw std::invalid_argument("Input image must be single-channel 16-bit");
 
     int W = image.cols;
     int H = image.rows;
@@ -116,11 +116,11 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
     }
     //correct colavg because the intensity are distributed on circles with radius from r_inner to r_outer
     std::vector<double> correction_factor;
-    const float pixelsize=4.832e-3;//mm/pixel
+    const float pixelsize=4.832e-3f;//mm/pixel
     //std::println("flatten: r_inner={}, r_outer={}",r_inner,r_outer);
     for(int x=0; x<W; ++x)
     { 
-        double cf=r_outer/(pixelsize*x+r_inner+0.001);
+        double cf=r_outer/(pixelsize*x+r_inner+0.001f);
         correction_factor.push_back(cf); 
         colavg[x]*=cf;
     }
@@ -161,6 +161,35 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
 			//for (int x = 0; x < W; ++x) 
 			//    dst_row[x] = cv::saturate_cast<ushort>(src_row[x] * inv_scales[x]);
 		}
+		double minval,maxval;
+		cv::minMaxLoc(result,&minval,&maxval,nullptr,nullptr);
+		//std::println("flattened output range: min={}, max={}",minval,maxval);
+		//std::println("Flattening complete. Image type: {}, Size: {}x{}",image.type(),W,H);
+
+		// --- Debugging output generation ---
+		if(debugfilename!="")
+		{
+			// Calculate the average of each column in the output image
+			//cv::Mat out_col_avg;
+			//cv::reduce(result,out_col_avg,0,cv::REDUCE_AVG,CV_32F);
+			//float* out_avg_ptr=out_col_avg.ptr<float>(0);
+			auto colavg_out=estimate_column_intensity_stat(result);
+
+			// Save to debug file
+			std::ofstream outfile(debugfilename);
+			if(outfile.is_open())
+			{
+				outfile<<"Index\tInput_Avg\tW_Element\tInput_Avg/W_Element\tColAvg_Out\n";
+				for(int x=0; x<W; ++x)
+					//outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<out_avg_ptr[x]<<"\n";
+					outfile<<std::format("{}\t{:.10f}\t{:.10f}\t{:.10f}\t{:.10f}\n",x,colavg[x],W_elements[x],colavg[x]/W_elements[x],colavg_out[x]);
+				//outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<colavg_out[x]<<"\n";
+				outfile.close();
+			}
+			//print statistics on out_avg_ptr
+			//std::cout<<std::format("Output averages ({}): min={:.4f}, max={:.4f}, mean={:.4f}",debugfilename,min_val,max_val,mean_val)<<std::endl;
+		}
+
 		return result;
     }
 	catch(const std::exception& e)
@@ -168,39 +197,6 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
 		throw std::runtime_error("Error during flattening - column scaling process: "+std::string(e.what()));
 	}
 
-	//double minval,maxval;
-	//cv::minMaxLoc(result,&minval,&maxval,nullptr,nullptr);
-	//std::println("flattened output range: min={}, max={}",minval,maxval);
-	//std::println("Flattening complete. Image type: {}, Size: {}x{}",image.type(),W,H);
-
-  //  // --- Debugging output generation ---
-  //  if(debugfilename!="") 
-  //  { 
-  //      // Calculate the average of each column in the output image
-  //      //cv::Mat out_col_avg;
-  //      //cv::reduce(result,out_col_avg,0,cv::REDUCE_AVG,CV_32F);
-  //      //float* out_avg_ptr=out_col_avg.ptr<float>(0);
-  //      auto colavg_out=estimate_column_intensity_stat(result);
-
-  //      // Save to debug file
-  //      std::ofstream outfile(debugfilename);
-  //      if(outfile.is_open()) 
-  //      {
-  //          outfile<<"Index\tInput_Avg\tW_Element\tInput_Avg/W_Element\tColAvg_Out\n";
-  //          for(int x=0; x<W; ++x) 
-  //              //outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<out_avg_ptr[x]<<"\n";
-		//		outfile<<std::format("{}\t{:.10f}\t{:.10f}\t{:.10f}\t{:.10f}\n",x,colavg[x],W_elements[x],colavg[x]/W_elements[x],colavg_out[x]);
-  //              //outfile<<x<<"\t" <<colavg[x]<<"\t" <<W_elements[x]<<"\t" <<colavg_out[x]<<"\n";
-  //          outfile.close();
-  //      }
-  //      else 
-  //          std::cerr<<"Warning: Could not open "<<debugfilename<<" for writing.\n";
-		////print statistics on out_avg_ptr
-		//std::cout<<std::format("Output averages ({}): min={:.4f}, max={:.4f}, mean={:.4f}",debugfilename,min_val,max_val,mean_val)<<std::endl;
-  //  }
-
-    // Step 4: Return result
-    //return result;
 }
 
 //cv::Mat dehaze(cv::Mat image)
