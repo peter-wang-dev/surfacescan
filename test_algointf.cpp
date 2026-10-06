@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "algorithm.h"
+#include "algocore.h"
 #include <opencv2/opencv.hpp>
 #include "io.h"
 import std;
@@ -143,64 +144,6 @@ TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 	}
 #endif
 }
-std::map<std::string, std::vector<float>> readRingParaCSV(const std::string& filename) {
-    std::map<std::string, std::vector<float>> dataMap;
-    std::ifstream file(filename);
-
-    if (!file.is_open()) {
-        throw std::runtime_error("Could not open file: " + filename);
-    }
-
-    std::string line;
-    std::vector<std::string> headers;
-
-    // 1. Parse the header line
-    if (std::getline(file, line)) {
-        std::stringstream ss(line);
-        std::string header;
-        
-        while (std::getline(ss, header, ',')) {
-            // Strip any trailing carriage returns (e.g., from Windows CRLF files)
-            if (!header.empty() && header.back() == '\r') {
-                header.pop_back();
-            }
-            headers.push_back(header);
-            dataMap[header] = std::vector<float>(); 
-        }
-    }
-	//std::println("Parsed headers from CSV");
-	//for(auto const& h:headers)
-	//	std::println("Header: {}", h);
-
-    // 2. Parse the data lines
-    while (std::getline(file, line)) {
-        // Skip completely empty lines
-        if (line.empty() || line.find_first_not_of(" \r\n\t") == std::string::npos) {
-            continue; 
-        }
-
-        std::stringstream ss(line);
-        std::string valueStr;
-        size_t colIndex = 0;
-
-        while (std::getline(ss, valueStr, ',')) {
-            if (colIndex < headers.size()) {
-                try {
-                    // Convert the string to float and add to the specific column vector
-                    float value = std::stof(valueStr);
-                    dataMap[headers[colIndex]].push_back(value);
-                } catch (const std::invalid_argument&) {
-                    // Fallback for empty strings or invalid float data
-                    dataMap[headers[colIndex]].push_back(0.0f);
-                }
-                colIndex++;
-            }
-        }
-    }
-	//std::println("Parsed {} rows from CSV",dataMap.begin()->second.size());
-
-    return dataMap;
-}
 TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 {
 	auto channel=DetectChannel::Narrow; 
@@ -211,7 +154,7 @@ TEST_F(AlgoTest,ChannelProcess_Single_Offline)
 		std::vector<fs::path> images;
 		int ringWidth = 0;
 		int ringHeight = 0;
-		float radius_mm=1;
+		float radius_mm=1.0f;
 	};
 	
 	std::vector<RingInfo> rings;

@@ -51,7 +51,7 @@ void imgprobe(cv::Mat img, bool continue_flag=false)
 		throw std::runtime_error("Intentional exception for image probing");
 }
 
-std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,DetectChannel channel,std::string directory="")
+std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,double thr_snr,DetectChannel channel,std::string directory="")
 {
 	//CV_Assert(image.type() == CV_16UC1);
 	CV_Assert(image.type() == CV_32F);
@@ -75,7 +75,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 
 	std::vector<DefectInfoStruct> defects;
 	//auto intensity=Intensities[1]/2+1.0f;
-	const float intensity_threshold=80;
+	const float intensity_threshold=(thr_snr-1.0f)*100;
 	//auto intensity_next=4096;
 	//if(Intensities.size()>2)
 	//	intensity_next=Intensities[2];
@@ -94,7 +94,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	// Connected components with stats
 	cv::Mat labels,stats,centroids;
 	int nLabels=cv::connectedComponentsWithStats(closure,labels,stats,centroids,8,CV_32S);
-	write_log(LogType::Info,"inspect",std::format("Integration threshold: {},  Found {} potential regions. Analyzing...",intensity_threshold,nLabels-1).c_str()	);
+	write_log(LogType::Info,"inspect",std::format("SNR threshold: {},  Found {} potential regions. Analyzing...",thr_snr,nLabels-1).c_str()	);
 	if(nLabels<=1) // no foreground components found
 		return {};
 	auto f_size=[&Intensities,&DSizes](double intensity)->double //linear interpolation
@@ -530,14 +530,13 @@ extern "C"
 	{
 		(void)cluster, (void)coordCaliSetting; 
 		std::lock_guard<std::mutex> lock(mtx_chsettings);
+		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, ring={}",static_cast<int>(channelID),ring).c_str());
 		chsettings[channelID]["ring"]=json::parse(ring); 
+		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, classifcation={}",static_cast<int>(channelID),classification).c_str());
 		chsettings[channelID]["classification"]=json::parse(classification); 
 		chsettings[channelID]["DSizeCurve"]=json::parse(DSizeCurve); 
 		std::lock_guard<std::mutex> lock_imgs(mtx_rings); 
 		rings[channelID]=std::vector<Ring>(chsettings[channelID]["ring"]["TotalRings"]);
-		//std::println("BeginChannelProcess: channelID={}, ringSetting={}",static_cast<int>(channelID),ringSetting);
-		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, ring={}",static_cast<int>(channelID),ring).c_str());
-		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, classifcation={}",static_cast<int>(channelID),classification).c_str());
 		if(chsettings[channelID]["ring"].find("DebugOutput")!=chsettings[channelID]["ring"].end())
 			DebugOutput=chsettings[channelID]["ring"]["DebugOutput"];
 		pixelsize=chsettings[channelID]["classification"]["PixelSize"];
@@ -638,11 +637,20 @@ extern "C"
 		} 
 		const int W=2*std::accumulate(ringWidths.begin(),ringWidths.end(),0);
 		const int H=W;
-		int N=0;// number of rings
+		int N=11;// number of rings
+		float thr_snr=1.8f;
+		try
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
 			N=chsettings[channelID]["ring"]["TotalRings"]; 
+			thr_snr=chsettings[channelID]["classification"]["SNRThreshold"];
+			if(thr_snr>10.0f) thr_snr=10.0f; // clamp to a reasonable maximum
+			if(thr_snr<1.001f) thr_snr=1.001f; // clamp to a reasonable minimum
 			//pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
+		}
+		catch(const std::exception& e)
+		{
+			write_log(LogType::Warning,"EndChannelProcess",std::format("channelID={} using default settings due to exception during extracting settings: {}",static_cast<int>(channelID),e.what()).c_str());
 		}
 
 		//PROCESS OF EACH RING 
@@ -792,7 +800,7 @@ extern "C"
 		} 
 
 		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
-		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID,dir);
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,thr_snr,channelID,dir);
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 		//return AlgoResult::Success();
 

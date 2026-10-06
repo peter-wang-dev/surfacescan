@@ -4,7 +4,8 @@
 	"eigen3",
 	"yaml-cpp",
 	"gtest",
-	"nlohmann-json"
+  "nlohmann-json",
+  "cxxopts"
   ],
 
 	"builtin-baseline": "7fb558b02523aaa5f1f297e12d695962ce15fc92",

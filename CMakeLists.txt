@@ -19,13 +19,17 @@ find_package(OpenCV CONFIG REQUIRED) #
 find_package(GTest CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenMP REQUIRED)
+find_package(cxxopts CONFIG REQUIRED)
 include(GoogleTest)  # for testing 
 
 add_library(algo SHARED algointf.cpp algorithm.h algocore.cpp io.h io.cpp)
 target_link_libraries(algo PRIVATE ${OpenCV_LIBS} OpenMP::OpenMP_CXX)
 target_link_libraries(algo PRIVATE nlohmann_json::nlohmann_json)
 
-add_executable(test_algointf test_algointf.cpp io.h io.cpp)
+add_executable(wi wi.cpp io.cpp)
+target_link_libraries(wi PRIVATE ${OpenCV_LIBS} algo cxxopts::cxxopts)
+
+add_executable(test_algointf test_algointf.cpp algocore.cpp io.h io.cpp)
 target_link_libraries(test_algointf PRIVATE GTest::gtest_main ${OpenCV_LIBS} algo)
 gtest_discover_tests(test_algointf)
 add_executable(test_algocore test_algocore.cpp algocore.cpp algocore.h)
