@@ -285,10 +285,11 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 /// ring: {
 ///     "FrameWidth": 1024,              // int: 单帧宽度（像素）
 ///     "FrameHeight": 256,              // int: 单帧高度（像素）
-///     "TotalRings": 10,                // int: 总圈数
+///     "TotalRings": 11,                // int: 总圈数
 ///     "IntensityCalibration": "Haze",   // string: 光强校准策略 None|Haze|SelfHaze|RefHaze
 ///     "ImageSaveDirectory": "",
 ///     "DebugOutput": false             //bool: whether to save intermediate results for debugging
+///     "WaferMaterial": "silicon"             // string: Wafer material, "silicon" or "glass"
 /// }
 /// cluster: {
 ///     "WaferRadius": float,            // 晶圆半径mm

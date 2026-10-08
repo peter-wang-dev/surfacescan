@@ -10,21 +10,31 @@ const float thr_snr_default=1.8f;//signal-to-noise ratio threshold for integrati
 const float thr_intg_default=1000.0f;//integration threshold for particle detection
 int main(int argc,char* argv[])
 {
+	// Parse command-line arguments
 	cxxopts::Options options("wi","Command-line interface for wafer inspection");
 	options.add_options()
 		("i,pathin","Input directory",cxxopts::value<std::string>()->default_value(pathin_default))
 		("o,pathout","Output directory",cxxopts::value<std::string>()->default_value(pathout_default))
+		("material","Wafer material: \"silicon\" or \"glass\"",cxxopts::value<std::string>()->default_value("silicon"))
 		("thr_snr","Signal-to-noise ratio threshold",cxxopts::value<float>()->default_value(std::to_string(thr_snr_default)))
 		("thr_intg","Integration threshold",cxxopts::value<float>()->default_value(std::to_string(thr_intg_default)))
 		("h,help","Print usage");
-	auto arguments=options.parse(argc,argv);
+	auto arguments=options.parse(argc,argv); 
+	std::string material=arguments["material"].as<std::string>();
+	if(material!="silicon"&&material!="glass") 
+	{
+		std::cerr<<"Invalid wafer material: "<<material<<". Must be \"silicon\" or \"glass\"."<<std::endl;
+		return 1;
+	} 
 	if(arguments.count("help")||!arguments.count("pathin")||!arguments.count("pathout")) {
 		std::cout<<options.help()<<std::endl;
 		return 0;
 	}
+
 	try // wafer inspection
-	{ 
-		auto channel=DetectChannel::Narrow; 
+	{
+		Initialize();
+		auto channel=DetectChannel::Narrow;
 		namespace fs=std::filesystem;
 
 		struct RingInfo {
@@ -66,12 +76,12 @@ int main(int argc,char* argv[])
 			for(int i=0; i<static_cast<int>(numImages); ++i)
 				info.images.emplace_back(ring_dir/std::format("{}.tiff",i));
 
-			if (info.images.empty())
-				throw std::runtime_error(std::format("No images found in ring directory: {}", ring_dir.string()));
+			if(info.images.empty())
+				throw std::runtime_error(std::format("No images found in ring directory: {}",ring_dir.string()));
 
 			cv::Mat first_img=cv::imread(info.images[0].string(),CV_8UC1);
-			if (first_img.empty())
-				throw std::runtime_error(std::format("Failed to load image: {}", info.images[0].string()));
+			if(first_img.empty())
+				throw std::runtime_error(std::format("Failed to load image: {}",info.images[0].string()));
 
 			info.ringWidth=first_img.cols;
 			info.ringHeight=validRows[info.kr]; // Use the validRows from CSV for ringHeight
@@ -84,15 +94,18 @@ int main(int argc,char* argv[])
 		for(const auto& ring:rings)
 			std::println("Ring {}: RingWidth={}, RingHeight={}, StartDegree={}, EndDegree={}, Radius={}",ring.kr,ring.ringWidth,ring.ringHeight,theta0s[ring.kr],theta1s[ring.kr],ring.radius_mm);
 
-		if (TotalRings <= 0)
-			throw std::runtime_error("No ring directories found."); 
-		if (FrameWidth <= 0)
-			throw std::runtime_error("Could not determine FrameWidth."); 
-		if (FrameHeight <= 0)
+		if(TotalRings<=0)
+			throw std::runtime_error("No ring directories found.");
+		if(FrameWidth<=0)
+			throw std::runtime_error("Could not determine FrameWidth.");
+		if(FrameHeight<=0)
 			throw std::runtime_error("Could not determine FrameHeight.");
 
-		std::string ringsettings=std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},  "ImageSaveDirectory":"{}", "DebugOutput":true}})",
-			FrameWidth,FrameHeight,TotalRings,pathout_default);
+		std::string pathout=arguments["pathout"].as<std::string>();
+		if(pathout!=""&&!std::filesystem::exists(pathout))
+			std::filesystem::create_directories(pathout);
+		std::string ringsettings=std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},  "ImageSaveDirectory":"{}", "DebugOutput":true, "WaferMaterial":"{}"}})",
+			FrameWidth,FrameHeight,TotalRings,pathout,material);
 		//std::string DSizeCurveStr=std::format(R"({{"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": {}, "DSize": 200.0}, {"Intensity": 255.0, "DSize": 1000.0}]}})", detection_threshold); 
 		float thr_intg=arguments["thr_intg"].as<float>();
 		std::string DSizeCurveStr=std::format(
@@ -104,8 +117,8 @@ int main(int argc,char* argv[])
 		auto res_beginchannel=BeginChannelProcess(channel,ringsettings.c_str(),
 			"cluster_setting.json",classifySettingStr.c_str(),
 			"coord_cali_setting.json",DSizeCurveStr.c_str());
-		if (!res_beginchannel.IsSuccess)
-			throw std::runtime_error(std::format("BeginChannelProcess failed: {}", res_beginchannel.ErrorMessage));
+		if(!res_beginchannel.IsSuccess)
+			throw std::runtime_error(std::format("BeginChannelProcess failed: {}",res_beginchannel.ErrorMessage));
 
 		for(const auto& ring:rings)//index of ring
 		{
@@ -118,8 +131,8 @@ int main(int argc,char* argv[])
 				ring.ringWidth,ring.ringHeight,FrameWidth,FrameHeight);
 			auto res_beginring=BeginRingProcess(channel,ring.kr,processSetting_jsonstr.c_str(),
 				"haze_cali_setting.json",coordCaliSetting_jsonstr.c_str());
-			if (!res_beginring.IsSuccess)
-				throw std::runtime_error(std::format("BeginRingProcess failed: {}", res_beginring.ErrorMessage));
+			if(!res_beginring.IsSuccess)
+				throw std::runtime_error(std::format("BeginRingProcess failed: {}",res_beginring.ErrorMessage));
 			int rows_remaining=validRows[ring.kr];
 			std::println("Ring {} started with ringWidth={}, ringHeight={}, validRows={}",ring.kr,ring.ringWidth,ring.ringHeight,rows_remaining);
 			for(const auto& img_path:ring.images)
@@ -132,44 +145,41 @@ int main(int argc,char* argv[])
 					img=imgin;
 				else
 					throw std::runtime_error(std::format("Input image {} is neither CV_8U nor CV_16U",img_path.string()));
-				//if(ring.kr>=5) // invalidate some rings for testing
-				//	img=1;
-				//if(ring.kr==0) //
-				//	img=1;
 				//cv::Mat img = cv::imread(img_path.string(), CV_16UC1);
 				//cv::Mat img8 = cv::imread(img_path.string(), CV_8UC1);
 				//cv::Mat img;//convert to 16-bit unsigned single channel, but the greatest 4 bit are zero, simulating 12-bit data in a 16-bit container
 				if(img.empty())
-					throw std::runtime_error(std::format("Failed to load image: {}", img_path.string()));
+					throw std::runtime_error(std::format("Failed to load image: {}",img_path.string()));
 				int frame_height=std::min(img.rows,rows_remaining);
 				//std::println("Adding frame from {} ({}x{}) to ring {} with frame_height={} and rows_remaining={}",img_path.string(),img.cols,img.rows,ring.kr,frame_height,rows_remaining);
 				auto res_addblock=AddRingProcessFrame(channel,ring.kr,img.data,img.cols,img.rows,frame_height,0,1);
 				rows_remaining-=frame_height;
 				if(!res_addblock.IsSuccess)
-					throw std::runtime_error(std::format("AddRingProcessFrame failed: {}", res_addblock.ErrorMessage));
+					throw std::runtime_error(std::format("AddRingProcessFrame failed: {}",res_addblock.ErrorMessage));
 			}
 
 			auto res_endring=EndRingProcess(channel,ring.kr,nullptr,nullptr);
 			if(!res_endring.IsSuccess)
-				throw std::runtime_error(std::format("EndRingProcess failed: {}", res_endring.ErrorMessage));
+				throw std::runtime_error(std::format("EndRingProcess failed: {}",res_endring.ErrorMessage));
 			std::println("Ring {} ended. {} rows in total; {} rows valid.",ring.kr,ring.ringHeight,validRows[ring.kr]);
 		}
 
 		auto res_endchannel=EndChannelProcess(channel,nullptr);
-		std::println("EndChannelProcess result: IsSuccess={}, ErrorMessage=\"{}\"",res_endchannel.IsSuccess,res_endchannel.ErrorMessage);
 		if(!res_endchannel.IsSuccess)
 			throw std::runtime_error(std::format("EndChannelProcess failed: {}", res_endchannel.ErrorMessage));
+		//print the parsed options using std::println
+		std::println("Parsed options:\n\tpathin={}\n\tpathout={}\n\tmaterial={}\n\tthr_snr={}\n\tthr_intg={}",
+			arguments["pathin"].as<std::string>(),
+			arguments["pathout"].as<std::string>(),
+			arguments["material"].as<std::string>(),
+			arguments["thr_snr"].as<float>(),
+			arguments["thr_intg"].as<float>());
+		std::println("Wafer inspection completed.");
 	}
-	catch(const std::exception& e) {
-		std::cerr<<"Error during flattening: "<<e.what()<<std::endl;
-		return 1;
+	catch(const std::exception& e) 
+	{
+		std::cerr<<"Error: "<<e.what()<<std::endl;
 	}
 
-	//print the parsed options using std::println
-	std::println("Parsed options: pathin={}, pathout={}, thr_snr={}, thr_intg={}",
-		arguments["pathin"].as<std::string>(),
-		arguments["pathout"].as<std::string>(),
-		arguments["thr_snr"].as<double>(),
-		arguments["thr_intg"].as<double>());
 	return 0;
 }

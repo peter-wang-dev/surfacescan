@@ -16,6 +16,7 @@ std::map<DetectChannel, std::map<std::string, json>> chsettings;
 const double intensity_normalizer=100.0;
 bool DebugOutput=false;
 float pixelsize;
+bool flag_glass=false;//true: glass wafer, false: silicon wafer
 struct Ring
 {
 	int index;
@@ -55,12 +56,6 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 {
 	//CV_Assert(image.type() == CV_16UC1);
 	CV_Assert(image.type() == CV_32F);
-	// Output verification
-	std::stringstream ss;
-	ss<<"Intensities: ";
-	for(double val:Intensities) ss<<val<<" "; ss<<"\nDSizes: ";
-	for(double val:DSizes) ss<<val<<" ";
-	write_log(LogType::Info,"inspect",ss.str().c_str());
 	//std::cout<<"\n";
 	if(Intensities.size()!=DSizes.size())
 	{
@@ -72,14 +67,14 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		write_log(LogType::Error,"inspect","Intensities and DSizes vectors must contain at least two elements");
 		return {};
 	}
+	std::stringstream ss; 
+	ss<<"DSizeCurve : ";
+	for(size_t k=0;k<Intensities.size();++k)
+		ss<<std::format("({}|->{}um) ",Intensities[k],DSizes[k]);
+	write_log(LogType::Info,"inspect",ss.str().c_str());
 
 	std::vector<DefectInfoStruct> defects;
-	//auto intensity=Intensities[1]/2+1.0f;
 	const float intensity_threshold=(thr_snr-1.0f)*100;
-	//auto intensity_next=4096;
-	//if(Intensities.size()>2)
-	//	intensity_next=Intensities[2];
-	//auto dsize=DSizes[1];
 
 	// Binary mask
 	//cv::Mat binary=(image>=intensity);//&(image<intensity_next); // yields 8-bit mask (0 or 255) in OpenCV expression context on most builds
@@ -134,10 +129,10 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 				if(labels.at<int>(i,j)==lbl)
 				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
 					intg+=image.at<float>(i,j);
-		//int center_x=static_cast<int>(centroids.at<double>(lbl,0));
-		//int center_y=static_cast<int>(centroids.at<double>(lbl,1));
-		//if(center_x>10000&&center_x<31000&&center_y>22000)
-		//	continue;
+		int center_x=static_cast<int>(centroids.at<double>(lbl,0));
+		int center_y=static_cast<int>(centroids.at<double>(lbl,1));
+		if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore a region for glass wafer
+			continue;
 		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
 
 		//ignore the superficial components that are not part of the binary mask
@@ -539,6 +534,8 @@ extern "C"
 		rings[channelID]=std::vector<Ring>(chsettings[channelID]["ring"]["TotalRings"]);
 		if(chsettings[channelID]["ring"].find("DebugOutput")!=chsettings[channelID]["ring"].end())
 			DebugOutput=chsettings[channelID]["ring"]["DebugOutput"];
+		if(chsettings[channelID]["ring"].find("WaferMaterial")!=chsettings[channelID]["ring"].end())
+			flag_glass=chsettings[channelID]["ring"]["WaferMaterial"]=="glass";
 		pixelsize=chsettings[channelID]["classification"]["PixelSize"];
 		//std::println("setting pixelsize as {}",pixelsize);
 		return AlgoResult::Success();
@@ -685,9 +682,12 @@ extern "C"
 				for(int x=0; x<haze.cols; ++x)
 					haze.col(x)=haze_col_intensity[x]*1.0f;
 				cv::Mat dehazed=flattened-haze;//allow negative values to remain
+				if(flag_glass&&kr>=5) //ignore the central rings for glass wafer
+					dehazed=0;
 				//cv::Mat dehazed;
 				//cv::max(0,flattened-haze,dehazed);
 				rings_copy[kr].dehazed=dehazed;
+
 				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {} ready for inspection",static_cast<int>(channelID),kr).c_str());
 			}
 		}
@@ -767,7 +767,7 @@ extern "C"
 
 		//DEFECT INSPECTION
 		//std::string DSizeCurve;
-		write_log(LogType::Info,"EndChannelProcess",std::format("DSizeCurve for channel {}: {}",static_cast<int>(channelID),chsettings[channelID]["DSizeCurve"].dump(4)).c_str());
+		//write_log(LogType::Info,"EndChannelProcess",std::format("Using DSizeCurve for channel {}: {}",static_cast<int>(channelID),chsettings[channelID]["DSizeCurve"].dump(4)).c_str());
 		json DSizeCurveJson;
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
@@ -803,6 +803,7 @@ extern "C"
 		//std::cout<<"Target absolute path: "<<std::filesystem::absolute(dir+"/img.png")<<"\n";
 		write_log(LogType::Info,"EndChannelProcess",std::format("Saving images to directory: {}",dirout).c_str());
 		if(dirout!="")
+		//if(false)
 		{
 			std::vector<int> outputparams; 
 			outputparams.push_back(cv::IMWRITE_PNG_COMPRESSION);
@@ -827,7 +828,7 @@ extern "C"
 				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize);
 				//cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
-				cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated_8ev.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
+				cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
 				dehazed.release();
 				//write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
 				//cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
@@ -835,7 +836,7 @@ extern "C"
 				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
 				cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
-				//cv::imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
+				cv::imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
 				//cv::imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256,outputparams); 
 			}
 
