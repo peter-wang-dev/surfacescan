@@ -6,6 +6,7 @@ void release_all_mmap(){}
 #else 
 #include <windows.h>
 #include <string>
+#include <map>
 #include "io.h"
 import std;
 

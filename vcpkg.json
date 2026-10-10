@@ -1,11 +1,12 @@
 {
   "dependencies": [
-	"opencv",
 	"eigen3",
 	"yaml-cpp",
 	"gtest",
   "nlohmann-json",
-  "cxxopts"
+  "cxxopts",
+  "tiff",
+    { "name": "opencv", "features": [ "openexr" ] }
   ],
 
 	"builtin-baseline": "7fb558b02523aaa5f1f297e12d695962ce15fc92",

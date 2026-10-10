@@ -33,6 +33,7 @@ int main(int argc,char* argv[])
 
 	try // wafer inspection
 	{
+		auto timestamp_start=std::chrono::high_resolution_clock::now();
 		Initialize();
 		auto channel=DetectChannel::Narrow;
 		namespace fs=std::filesystem;
@@ -163,17 +164,24 @@ int main(int argc,char* argv[])
 				throw std::runtime_error(std::format("EndRingProcess failed: {}",res_endring.ErrorMessage));
 			std::println("Ring {} ended. {} rows in total; {} rows valid.",ring.kr,ring.ringHeight,validRows[ring.kr]);
 		}
+		
+		auto timestamp_dataloaded=std::chrono::high_resolution_clock::now();
 
 		auto res_endchannel=EndChannelProcess(channel,nullptr);
 		if(!res_endchannel.IsSuccess)
 			throw std::runtime_error(std::format("EndChannelProcess failed: {}", res_endchannel.ErrorMessage));
 		//print the parsed options using std::println
+		auto timestamp_end=std::chrono::high_resolution_clock::now();
 		std::println("Parsed options:\n\tpathin={}\n\tpathout={}\n\tmaterial={}\n\tthr_snr={}\n\tthr_intg={}",
 			arguments["pathin"].as<std::string>(),
 			arguments["pathout"].as<std::string>(),
 			arguments["material"].as<std::string>(),
 			arguments["thr_snr"].as<float>(),
 			arguments["thr_intg"].as<float>());
+		std::chrono::duration<double> duration_dataloaded=timestamp_dataloaded-timestamp_start;
+		std::println("Data loading time: {}s",duration_dataloaded.count());
+		std::chrono::duration<double> duration_total=timestamp_end-timestamp_dataloaded;
+		std::println("Inspection & export time: {}s",duration_total.count());	
 		std::println("Wafer inspection completed.");
 	}
 	catch(const std::exception& e) 

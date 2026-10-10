@@ -13,17 +13,18 @@ project(waferinsp VERSION 1.0 LANGUAGES CXX)
 if(MSVC)    
     add_compile_options(/W4 /std:c++latest /external:anglebrackets /external:W0)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")    
-    add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unknown-pragmas -Wno-missing-field-initializers -O3) 
+    add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unknown-pragmas -Wno-override-init -Wno-missing-field-initializers -O3) 
 endif()
 find_package(OpenCV CONFIG REQUIRED) # 
 find_package(GTest CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(cxxopts CONFIG REQUIRED)
+find_package(TIFF REQUIRED)
 include(GoogleTest)  # for testing 
 
 add_library(algo SHARED algointf.cpp algorithm.h algocore.cpp io.h io.cpp)
-target_link_libraries(algo PRIVATE ${OpenCV_LIBS} OpenMP::OpenMP_CXX)
+target_link_libraries(algo PRIVATE ${OpenCV_LIBS} OpenMP::OpenMP_CXX TIFF::TIFF)
 target_link_libraries(algo PRIVATE nlohmann_json::nlohmann_json)
 
 add_executable(wi wi.cpp io.cpp)
