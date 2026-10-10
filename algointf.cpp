@@ -1,5 +1,6 @@
 ﻿#include "algorithm.h"
 #include "algocore.h"
+#include <tiffio.h> // Requires libtiff-dev
 #include <nlohmann/json.hpp>
 #include "io.h"
 import std;
@@ -52,7 +53,7 @@ void imgprobe(cv::Mat img, bool continue_flag=false)
 		throw std::runtime_error("Intentional exception for image probing");
 }
 
-std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,double thr_snr,DetectChannel channel,std::string directory="")
+std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,float thr_snr,DetectChannel channel,std::string directory="")
 {
 	//CV_Assert(image.type() == CV_16UC1);
 	CV_Assert(image.type() == CV_32F);
@@ -220,7 +221,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 		if(defect.Area<=0) continue; // skip invalid entries
 		cv::Point center(static_cast<int>(defect.CoordX/pixelsize+image.cols/2),static_cast<int>(defect.CoordY/pixelsize+image.rows/2));
 		cv::Size axes(static_cast<int>(defect.XSize/2/pixelsize)+20,static_cast<int>(defect.YSize/2/pixelsize)+20);
-		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,255*256),2); // red ellipse
+		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(255*256,0,0),2); // red ellipse
 		//defect_log<<std::format("Drawing defect at ({},{})px. R={}um, T={}deg, sizes=({},{})um, area={}px({}um^2), bin={}\n",center.x,center.y,defect.CoordR,defect.CoordT,defect.XSize,defect.YSize,defect.RawPixelsCount,defect.Area,defect.BinCode);
 
 		// place Area and BinCode text at the top of the ellipse, with a small offset to avoid overlap
@@ -247,6 +248,42 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 	write_log(LogType::Info,"drawmap","Finished drawing defect annotations");
 	return defect_annotation;
 }
+bool saveBigTiff(const std::string& filename, cv::Mat& image) 
+{
+    // Open file with '8' flag to explicitly force BigTIFF format
+    TIFF* tif = TIFFOpen(filename.c_str(), "w8"); 
+    if (!tif) 
+		throw std::runtime_error(std::format("Failed to open {} for writing BigTIFF.",filename));
+
+    // Set mandatory TIFF tags based on cv::Mat properties
+    TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, image.cols);
+    TIFFSetField(tif, TIFFTAG_IMAGELENGTH, image.rows);
+    TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, image.channels());
+    TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, image.elemSize1() * 8);
+    TIFFSetField(tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+    TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+
+    // Set Color Space tag
+    if (image.channels() == 1) 
+        TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
+    else if (image.channels() == 3 || image.channels() == 4) 
+        TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+
+    // Set Compression (e.g., LZW)
+    TIFFSetField(tif, TIFFTAG_COMPRESSION, COMPRESSION_LZW);
+
+    // Write row by row to prevent massive single-allocation spikes
+    //size_t row_stride = image.step; 
+    for (int y = 0; y < image.rows; ++y)
+        if (TIFFWriteScanline(tif, image.ptr<uchar>(y), y, 0) < 0) 
+		{
+            TIFFClose(tif);
+            throw std::runtime_error(std::format("Error writing scanline at row {}", y));
+        }
+
+    TIFFClose(tif);
+    return true;
+}
 extern "C"
 {
 	AlgoResult SetLogMessageCallBack(LogMessageCallBack callBackPointer)
@@ -267,6 +304,11 @@ extern "C"
 			std::lock_guard<std::mutex> lock(mtx_rings);
 			rings.clear(); // Clear any previously stored rings
 		}
+#if defined(_WIN32)
+		_putenv_s("OPENCV_IO_ENABLE_OPENEXR","1");
+#else
+		setenv("OPENCV_IO_ENABLE_OPENEXR","1",1);
+#endif
 		write_log(LogType::Info,"Initialize","Algorithm module initialized");
 		return AlgoResult::Success();
 	}
@@ -808,8 +850,14 @@ extern "C"
 			std::vector<int> outputparams; 
 			outputparams.push_back(cv::IMWRITE_PNG_COMPRESSION);
 			outputparams.push_back(1);
+			outputparams.push_back(cv::IMWRITE_EXR_COMPRESSION);
+			outputparams.push_back(0);
+			//outputparams.push_back(cv::IMWRITE_JPG_COMPRESSION);
+			//outputparams.push_back(0);
 			write_log(LogType::Info,"EndChannelProcess","Saving fullmap");
-			cv::imwrite(dirout+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage,outputparams); 
+			//cv::imwrite(dirout+std::format("/ch{}_fullmap.exr",static_cast<int>(channelID)),fullimage,outputparams); 
+			//cv::imwrite(dirout+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage,outputparams); 
+			saveBigTiff(dirout+std::format("/ch{}_fullmap.tiff",static_cast<int>(channelID)),fullimage);
 			auto imwrite_as16bit=[](const std::string& path,const cv::Mat& img32f)
 				{
 					cv::Mat img;
@@ -827,16 +875,20 @@ extern "C"
 				dehazed.convertTo(dehazed_16UC1,CV_16UC1); 
 				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize);
 				//cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
+				saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
-				cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
+				//cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
+				dehazed_annotation*=256;
+				saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated_enhanced.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				dehazed.release();
-				//write_log(LogType::Info,"EndChannelProcess","drawing defect annotation");
-				//cv::Mat defect_annotation=drawmap(dehazed,defects,pixelsize);
 				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
 				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
-				cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
-				cv::imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
+				//cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
+				//cv::imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
+				saveBigTiff(dirout+std::format("/ch{}_annotated.tiff",static_cast<int>(channelID)),defect_annotation);
+				defect_annotation*=16;
+				saveBigTiff(dirout+std::format("/ch{}_annotated_4ev.tiff",static_cast<int>(channelID)),defect_annotation);
 				//cv::imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256,outputparams); 
 			}
 

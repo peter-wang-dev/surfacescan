@@ -283,13 +283,13 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 /// <summary>
 /// 开始处理一个检测通道。
 /// ring: {
-///     "FrameWidth": 1024,              // int: 单帧宽度（像素）
-///     "FrameHeight": 256,              // int: 单帧高度（像素）
-///     "TotalRings": 11,                // int: 总圈数
-///     "IntensityCalibration": "Haze",   // string: 光强校准策略 None|Haze|SelfHaze|RefHaze
-///     "ImageSaveDirectory": "",
-///     "DebugOutput": false             //bool: whether to save intermediate results for debugging
-///     "WaferMaterial": "silicon"             // string: Wafer material, "silicon" or "glass"
+///     "FrameWidth": int,              //  单帧宽度（像素）
+///     "FrameHeight": int,              //  单帧高度（像素）
+///     "TotalRings": int,                // 总圈数
+///     "IntensityCalibration": string,   //  光强校准策略 None|Haze|SelfHaze|RefHaze
+///     "ImageSaveDirectory": string,
+///     "DebugOutput": bool,             //bool: whether to save intermediate results for debugging
+///     "WaferMaterial": string             // string: Wafer material, "silicon" or "glass"
 /// }
 /// cluster: {
 ///     "WaferRadius": float,            // 晶圆半径mm
@@ -305,7 +305,7 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 ///     "SatToAreaPixelCount": int,      // 饱和像素转AREA的阈值（单聚类中饱和像素超过此数则归为AREA）
 ///     "AREADisplayPixelSize": float,   // AREA缺陷显示的像素尺寸mm
 ///     "NeighborPixelCount": int,       // 领域像素采样数量（用于计算单像素周边背景）
-///     "SNRThreshold": float,           // SNR阈值（二次分类用）
+///     "SNRThreshold": float,           // SNR阈值
 ///     "MaxDSizeKey": float,            // DSize分级曲线的最大Key值（um）
 ///     "MaxDSizeValue": float           // DSize分级曲线的最大Value值（分类编号上限）
 /// }
