@@ -3,7 +3,6 @@
 #include <tiffio.h> // Requires libtiff-dev
 #include <nlohmann/json.hpp>
 #include "io.h"
-import std;
 using json = nlohmann::json;
 
 const float twopi=2.0f*static_cast<float>(CV_PI);
@@ -22,8 +21,6 @@ struct Ring
 {
 	int index;
 	cv::Mat img; // accumulated image, CV_8U \in [0,255] or CV_16U \in [0,4096]
-	//cv::Mat defectmap; // defect map 
-	//cv::Mat haze; // 
 	cv::Mat dehazed; // dehazed image, CV_32F \in [0,1]
 	std::vector<double> column_intensity;
 	int cursor=0; // current row index for adding new frames
@@ -41,7 +38,8 @@ void write_log(LogType level,const char* source,const char* message)
 		return;
 	}
 	//if(LogType::Info==level) return; 
-	printf("[%d] %s: %s\n",static_cast<int>(level),source,message);
+	auto timestamp=std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+	printf("[%d @ %lld] %s: %s\n",static_cast<int>(level),static_cast<long long>(timestamp),source,message);
 }
 void imgprobe(cv::Mat img, bool continue_flag=false)
 {
@@ -132,7 +130,8 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 					intg+=image.at<float>(i,j);
 		int center_x=static_cast<int>(centroids.at<double>(lbl,0));
 		int center_y=static_cast<int>(centroids.at<double>(lbl,1));
-		if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore a region for glass wafer
+		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore a region for glass wafer
+		if(flag_glass&&(!(center_x>10000&&center_x<31000&&center_y>22000)))//ignore a region for glass wafer
 			continue;
 		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
 
@@ -849,7 +848,7 @@ extern "C"
 		{
 			std::vector<int> outputparams; 
 			outputparams.push_back(cv::IMWRITE_PNG_COMPRESSION);
-			outputparams.push_back(1);
+			outputparams.push_back(0);
 			outputparams.push_back(cv::IMWRITE_EXR_COMPRESSION);
 			outputparams.push_back(0);
 			//outputparams.push_back(cv::IMWRITE_JPG_COMPRESSION);
@@ -874,22 +873,22 @@ extern "C"
 				cv::Mat dehazed_16UC1; 
 				dehazed.convertTo(dehazed_16UC1,CV_16UC1); 
 				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize);
-				//cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
-				saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated.tiff",static_cast<int>(channelID)),dehazed_annotation);
+				cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
+				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
-				//cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
-				dehazed_annotation*=256;
-				saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated_enhanced.tiff",static_cast<int>(channelID)),dehazed_annotation);
+				cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
+				//dehazed_annotation*=256;
+				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated_enhanced.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				dehazed.release();
 				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
 				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
-				//cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
+				cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
 				//cv::imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
-				saveBigTiff(dirout+std::format("/ch{}_annotated.tiff",static_cast<int>(channelID)),defect_annotation);
-				defect_annotation*=16;
-				saveBigTiff(dirout+std::format("/ch{}_annotated_4ev.tiff",static_cast<int>(channelID)),defect_annotation);
-				//cv::imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256,outputparams); 
+				//saveBigTiff(dirout+std::format("/ch{}_annotated.tiff",static_cast<int>(channelID)),defect_annotation);
+				//defect_annotation*=16;
+				//saveBigTiff(dirout+std::format("/ch{}_annotated_4ev.tiff",static_cast<int>(channelID)),defect_annotation);
+				cv::imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256,outputparams); 
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");
@@ -906,7 +905,11 @@ extern "C"
 		descriptor->ParticleCount=static_cast<int>(numDefects);
 		descriptor->DataSize=static_cast<int>(numDefects*sizeof(DefectInfoStruct));
 		write_log(LogType::Info,"EndChannelProcess","Saving mmap");
-		save_to_mmap(descriptor->Name,(void*)defects.data(),numDefects*sizeof(DefectInfoStruct));
+		if(!save_to_mmap(descriptor->Name,(void*)defects.data(),numDefects*sizeof(DefectInfoStruct)))
+		{
+			write_log(LogType::Error,"EndChannelProcess","Failed to save mmap");
+			return AlgoResult::Failure("Failed to save mmap");
+		}
 		write_log(LogType::Info,"EndChannelProcess","Finished saving mmap");
 		return AlgoResult::Success();
 	}

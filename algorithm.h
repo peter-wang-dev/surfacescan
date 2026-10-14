@@ -255,7 +255,6 @@ ALGO_API AlgoResult Abort();
 
 /// <summary>计算直方图峰值和标准差（高斯拟合），用于BaseIntensity校准等独立场景</summary>
 ALGO_API AlgoResult FitGaussianPeak(const float* values, int count, float* peakValue, float* sigma);
-
 // === Stage中心计算 ===
 
 /// <summary>开始计算相机与Stage旋转中心的相对位置</summary>
