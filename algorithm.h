@@ -257,6 +257,7 @@ ALGO_API AlgoResult Abort();
 ALGO_API AlgoResult FitGaussianPeak(const float* values, int count, float* peakValue, float* sigma);
 // === Stage中心计算 ===
 
+//Get the frame change: C_{CA} to C_W  (Camera coordinate to Wafer coordinate)
 /// <summary>开始计算相机与Stage旋转中心的相对位置</summary>
 ALGO_API AlgoResult BeginCenterCalculation(ContourCalcParameter parameters);
 
@@ -267,7 +268,7 @@ ALGO_API AlgoResult AddCenterCalculationImage(const unsigned char* imageData, do
 ALGO_API AlgoResult EndCenterCalculation(double* dx, double* dy, double* angle);
 
 // === 轮廓特征计算 ===
-
+//Get the frame change: C_{SA} to C_{CA} (Stage coordinate to Camera coordinate)
 /// <summary>开始计算晶圆轮廓特征（Notch/Flat）</summary>
 ALGO_API AlgoResult BeginContourCalculation(ContourCalcParameter parameters);
 

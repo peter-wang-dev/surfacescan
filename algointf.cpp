@@ -684,8 +684,8 @@ extern "C"
 			dirout=chsettings[channelID]["ring"]["ImageSaveDirectory"];
 			N=chsettings[channelID]["ring"]["TotalRings"]; 
 			thr_snr=chsettings[channelID]["classification"]["SNRThreshold"];
-			if(thr_snr>10.0f) thr_snr=10.0f; // clamp to a reasonable maximum
-			if(thr_snr<1.001f) thr_snr=1.001f; // clamp to a reasonable minimum
+			if(thr_snr>20.0f) thr_snr=20.0f; // clamp to a reasonable maximum
+			if(thr_snr<1.2f) thr_snr=1.2f; // clamp to a reasonable minimum
 			//pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
 		}
 		catch(const std::exception& e)
@@ -903,7 +903,9 @@ extern "C"
 		size_t numDefects=defects.size(); // For demonstration, we will fill in some dummy defect info 
 		write_log(LogType::Info,"EndChannelProcess",std::format("Number of defects: {}", numDefects).c_str());
 		descriptor->ParticleCount=static_cast<int>(numDefects);
-		descriptor->DataSize=static_cast<int>(numDefects*sizeof(DefectInfoStruct));
+		descriptor->DataSize=static_cast<int>(numDefects*sizeof(DefectInfoStruct)); 
+		if(descriptor->DataSize==0)
+			return AlgoResult::Success(); // No defects found, return success with zero count
 		write_log(LogType::Info,"EndChannelProcess","Saving mmap");
 		if(!save_to_mmap(descriptor->Name,(void*)defects.data(),numDefects*sizeof(DefectInfoStruct)))
 		{

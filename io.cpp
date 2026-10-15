@@ -1,14 +1,14 @@
 #ifndef _WIN64 
 #include <cstddef>
-void save_to_mmap(const char* name,const void* data,size_t size){} 
+bool save_to_mmap(const char* name,const void* data,size_t size){ return false; } 
 void load_from_mmap(const char* name,void** data,size_t* size){}
-void release_all_mmap(){}
+void release_all_mmap() {}
 #else 
 #include <windows.h>
 #include "io.h"
 
 std::map<void*,HANDLE> g_mmap_registry;
-void save_to_mmap(const char* name, const void* data, size_t size)
+bool save_to_mmap(const char* name, const void* data, size_t size)
 {
     // Explicitly target the local session namespace
     std::string mapping_name = std::string("Local\\") + name;
@@ -26,23 +26,24 @@ void save_to_mmap(const char* name, const void* data, size_t size)
 
     if (hMapFile == NULL)
     {
-        std::println("save_to_mmap: CreateFileMappingA failed, error code={}", GetLastError());
-        return;
+        //std::println("save_to_mmap: CreateFileMappingA failed, error code={}", GetLastError());
+        return false;
     }
 
-    LPVOID pBuf = MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, size);
+    LPVOID pBuf = MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, static_cast<DWORD>(size));
     if (pBuf == NULL)
     {
         CloseHandle(hMapFile);
-        return;
+        return false;
     }
 
     CopyMemory(pBuf, data, size);
     
     // Deliberately doing NOT call UnmapViewOfFile(pBuf) or CloseHandle(hMapFile) 
     // so the data stays accessible process-wide.
-    std::println("save_to_mmap: Saved {} bytes to shared memory \"{}\"", size, mapping_name);
+    //std::println("save_to_mmap: Saved {} bytes to shared memory \"{}\"", size, mapping_name);
     g_mmap_registry[pBuf] = hMapFile;
+    return true;
 }
 
 void load_from_mmap(const char* name, void** data, size_t* size)
