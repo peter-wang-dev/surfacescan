@@ -195,10 +195,133 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
 	catch(const std::exception& e)
 	{
 		throw std::runtime_error("Error during flattening - column scaling process: "+std::string(e.what()));
-	}
-
+	} 
 }
 
+int ransac_fit_circle(const std::vector<cv::Point2d>& points,double& best_circle_x,double& best_circle_y,double& best_circle_r,int iterations,double threshold)
+{
+	if(points.size()<3) {
+		return 0; // Not enough points to fit a circle
+	}
+	int best_inliers=0;
+	best_circle_x=0.0;
+	best_circle_y=0.0;
+	best_circle_r=0.0;
+	std::mt19937 rng(12345); // Fixed seed for determinism
+	std::uniform_int_distribution<size_t> dist(0,points.size()-1);
+	for(int i=0; i<iterations; ++i) {
+		// Randomly select 3 unique points
+		size_t idx1=dist(rng);
+		size_t idx2,idx3;
+		do { idx2=dist(rng); } while(idx2==idx1);
+		do { idx3=dist(rng); } while(idx3==idx1||idx3==idx2);
+		const cv::Point2d& p1=points[idx1];
+		const cv::Point2d& p2=points[idx2];
+		const cv::Point2d& p3=points[idx3];
+		// Fit a circle to the three points
+		double A=p2.x-p1.x;
+		double B=p2.y-p1.y;
+		double C=p3.x-p1.x;
+		double D=p3.y-p1.y;
+		double E=A*(p1.x+p2.x)+B*(p1.y+p2.y);
+		double F=C*(p1.x+p3.x)+D*(p1.y+p3.y);
+		double G=2.0*(A*D-B*C);
+		if(std::abs(G)<1e-6) {
+			continue; // Points are collinear or too close to each other
+		}
+		double cx=(D*E-B*F)/G;
+		double cy=(A*F-C*E)/G;
+		double r=std::sqrt((cx-p1.x)*(cx-p1.x)+(cy-p1.y)*(cy-p1.y));
+		// Count inliers
+		int inliers_count=0;
+		for(const auto& pt:points) {
+			double dist=std::sqrt((pt.x-cx)*(pt.x-cx)+(pt.y-cy)*(pt.y-cy));
+			if(std::abs(dist-r)<threshold) {
+				++inliers_count;
+			}
+		}
+		if(inliers_count>best_inliers) {
+			best_inliers=inliers_count;
+			best_circle_x=cx;
+			best_circle_y=cy;
+			best_circle_r=r;
+		}
+	}
+	return best_inliers;
+}
+std::vector<cv::Point2d> get_edge_points(const cv::Mat& image)
+{ // Binary image 'imgb' from 'image' with threshold 30
+		cv::Mat imgb;
+		cv::threshold(image,imgb,30,255,cv::THRESH_BINARY);
+
+		std::vector<cv::Point2d> pts;
+		// Find contour of the largest black blob in imgb and save to contour_b
+		std::vector<std::pair<int,int>> contour_b;
+		{
+			// Invert so black regions become white for findContours
+			cv::Mat imgb_inv;
+			cv::bitwise_not(imgb,imgb_inv);
+
+			std::vector<std::vector<cv::Point>> contours;
+			cv::findContours(imgb_inv,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE);
+
+			if(contours.empty())
+				//write_log(LogType::Warning, "AddCenterCalculationImage", "no contours found");
+				return pts; // return empty vector
+			else 
+			{ // select largest by area
+				double maxArea=0.0;
+				int maxIdx=-1;
+				for(size_t i=0; i<contours.size(); ++i) {
+					double a=std::abs(cv::contourArea(contours[i]));
+					if(a>maxArea) { maxArea=a; maxIdx=static_cast<int>(i); }
+				}
+				if(maxIdx>=0) {
+					const auto& c=contours[maxIdx];
+					contour_b.reserve(c.size());
+					for(const auto& pt:c) contour_b.emplace_back(pt.x,pt.y);
+					// optional debug print
+					//write_log(LogType::Debug, "AddCenterCalculationImage", std::format("largest contour size={}, area={}", contour_b.size(), maxArea).c_str());
+				}
+			}
+		}
+
+		// Collect edge points from contour_b
+		pts.reserve(contour_b.size());
+		for(const auto& p:contour_b)
+		{
+			auto x=static_cast<int>(p.first),y=static_cast<int>(p.second);
+			if(x==0||y==0||x>=imgb.cols-1||y>=imgb.rows-1)
+				continue; // skip border points
+			pts.emplace_back(static_cast<double>(x),static_cast<double>(y));
+		} 
+		return pts;
+}
+bool find_notch(const std::vector<cv::Point2d>& edge_points,cv::Point2d& valley,cv::Point2d & wafer_center)
+{
+	if(edge_points.size()<10)
+		return false;
+	// Placeholder implementation
+	double cx,cy,cr;
+	int inliers=ransac_fit_circle(edge_points,cx,cy,cr,1000,5.0);
+	float ratio=static_cast<float>(inliers)/static_cast<float>(edge_points.size());
+	if(ratio<0.5f) //invalid if less than 50% inliers
+		return false;
+	if(ratio>0.95f) //invalid if more than 95% inliers
+		return false;
+	wafer_center=cv::Point2d(cx,cy);
+	double min_dist=1e10;
+	for(auto& pt:edge_points)
+	{
+		double dist=std::sqrt((pt.x-cx)*(pt.x-cx)+(pt.y-cy)*(pt.y-cy));
+		if(dist<min_dist)
+		{
+			min_dist=dist;
+			valley=pt;
+		}
+	}
+	return true;
+}
 //cv::Mat dehaze(cv::Mat image)
 //{
 //	cv::Mat dehazed;

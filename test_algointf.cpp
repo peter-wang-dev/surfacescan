@@ -6,7 +6,7 @@
 import std;
 std::string path_output="test_output"; 
 //std::string path_output="C:/Users/cyber/test_output"; 
-std::string path_input="C:/astri2/cnsvision/testinput"; 
+std::string path_input="D:/dev/cns_testinput"; 
 std::string path_userinput;
 double detection_threshold=15.0;
 //const std::string path_input="./test_output/"; 
@@ -39,7 +39,7 @@ protected:
 };
 TEST_F(AlgoTest,cencal)
 { 
-	auto res_calbegin=BeginCenterCalculation({300.0, ContourFeature::Notch, 45.0, 1200, 1920, 0.1, SearchDirection::TopToBottom, 128});
+	auto res_calbegin=BeginCenterCalculation({200.0, ContourFeature::Notch, 45.0, 1200, 1920, 0.1, SearchDirection::TopToBottom, 128});
 	ASSERT_EQ(res_calbegin.IsSuccess,true)<<"Center calculation failed: "<<res_calbegin.ErrorMessage;
 
 	//load images from the directory
@@ -48,21 +48,37 @@ TEST_F(AlgoTest,cencal)
 	//fs::path dir = path_input+"stage_center_cal/main"; 
 	//fs::path dir = path_input+"/stage_center_cal/20260814/181739"; 
 	//fs::path dir = path_input+"stage_center_cal/20260814/181856"; 
-	fs::path dir = path_input+"/stage_center_cal/261004/1324"; 
+	//fs::path dir = path_input+"/stage_center_cal/261004/1324"; 
+	fs::path dir = path_input+"/261015_align"; 
 	ASSERT_EQ(fs::exists(dir),true)<<"Directory not found: "<<dir.string();
 	ASSERT_EQ(fs::is_directory(dir),true)<<"Not a directory: "<<dir.string();
 	std::vector<fs::path> files;
+	std::vector<float> angles;
 	for (auto const& entry : fs::directory_iterator(dir)) 
 	{
 		if (!entry.is_regular_file()) continue;
+		//Extract the number from the filename and skip files with 15 or 20 in the name
+		//std::set<int> skip_numbers={};
+		//std::set<int> skip_numbers={15, 20};
+		std::set<int> skip_numbers={15,20,45,130};
+		std::regex re(R"((\d+))");
+		std::smatch match;
+		std::string filename = entry.path().filename().string();
+		if (std::regex_search(filename, match, re)) {
+			int number = std::stoi(match.str(1));
+			if (skip_numbers.find(number) != skip_numbers.end())
+				continue;
+			angles.push_back(static_cast<float>(number));
+		}
 		auto ext = entry.path().extension().string();
 		std::println("Found file: {} with extension: {}",entry.path().string(),ext);
 		std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
 		if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tif" || ext == ".tiff")
 			files.push_back(entry.path());
 	} 
-	std::sort(files.begin(), files.end());
-	for (auto const& p : files) {
+	//std::sort(files.begin(), files.end());
+	for (size_t i = 0; i < files.size(); ++i) {
+		auto const& p = files[i];
 		cv::Mat img = cv::imread(p.string(), cv::IMREAD_UNCHANGED);
 		if (img.empty()) {
 			std::cerr << "Failed to load image: " << p.string() << std::endl;
@@ -70,7 +86,7 @@ TEST_F(AlgoTest,cencal)
 		}
 		images.push_back(img);
 		std::println("Loaded image: {} ({}x{})",p.string(),img.cols,img.rows);
-		auto res_add=AddCenterCalculationImage(img.data,0.0); 
+		auto res_add=AddCenterCalculationImage(img.data,angles[i]); 
 		if(!res_add.IsSuccess)
 			std::cerr << "Failed to add center calculation image: " << res_add.ErrorMessage << std::endl;
 	}
@@ -80,6 +96,62 @@ TEST_F(AlgoTest,cencal)
 	auto res_calend=EndCenterCalculation(&dx,&dy,&angle);
 	std::println("EndCenterCalculation result: dx={}, dy={}, angle={}\n",dx,dy,angle);
 	ASSERT_EQ(res_calend.IsSuccess,true)<<"End center calculation failed: "<<res_calend.ErrorMessage;
+}
+TEST_F(AlgoTest,contcal)
+{ 
+	auto res_calbegin=BeginContourCalculation({200.0, ContourFeature::Notch, 45.0, 1200, 1920, 0.1, SearchDirection::TopToBottom, 128});
+	ASSERT_EQ(res_calbegin.IsSuccess,true)<<"Contour calculation failed: "<<res_calbegin.ErrorMessage;
+
+	//load images from the directory
+	std::vector<cv::Mat> images;
+	namespace fs = std::filesystem;
+	fs::path dir = path_input+"/261015_align"; 
+	ASSERT_EQ(fs::exists(dir),true)<<"Directory not found: "<<dir.string();
+	ASSERT_EQ(fs::is_directory(dir),true)<<"Not a directory: "<<dir.string();
+	std::vector<fs::path> files;
+	std::vector<float> angles;
+	for (auto const& entry : fs::directory_iterator(dir)) 
+	{
+		if (!entry.is_regular_file()) continue;
+		//Extract the number from the filename and skip files with 15 or 20 in the name
+		std::set<int> skip_numbers={};
+		//std::set<int> skip_numbers={15, 20};
+		//std::set<int> skip_numbers={15,20,45,130};
+		std::regex re(R"((\d+))");
+		std::smatch match;
+		std::string filename = entry.path().filename().string();
+		if (std::regex_search(filename, match, re)) {
+			int number = std::stoi(match.str(1));
+			if (skip_numbers.find(number) != skip_numbers.end())
+				continue;
+			angles.push_back(static_cast<float>(number));
+		}
+		auto ext = entry.path().extension().string();
+		std::println("Found file: {} with extension: {}",entry.path().string(),ext);
+		std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+		if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tif" || ext == ".tiff")
+			files.push_back(entry.path());
+	} 
+	//std::sort(files.begin(), files.end());
+	for (size_t i = 0; i < files.size(); ++i) {
+		auto const& p = files[i];
+		cv::Mat img = cv::imread(p.string(), cv::IMREAD_UNCHANGED);
+		if (img.empty()) {
+			std::cerr << "Failed to load image: " << p.string() << std::endl;
+			continue;
+		}
+		images.push_back(img);
+		std::println("Loaded image: {} ({}x{})",p.string(),img.cols,img.rows);
+		auto res_add=AddContourCalculationImage(img.data,angles[i]); 
+		if(!res_add.IsSuccess)
+			std::cerr << "Failed to add contour calculation image: " << res_add.ErrorMessage << std::endl;
+	}
+
+	ASSERT_GT(images.size(), 0u) << "No images loaded from " << dir.string();
+	double dx=0.0,dy=0.0,angle=0.0;
+	auto res_calend=EndContourCalculation(&dx,&dy,&angle);
+	std::println("EndContourCalculation result: dx={}, dy={}, angle={}\n",dx,dy,angle);
+	ASSERT_EQ(res_calend.IsSuccess,true)<<"End contour calculation failed: "<<res_calend.ErrorMessage;
 }
 TEST_F(AlgoTest,ChannelProcess_Single_Synthetic)
 {

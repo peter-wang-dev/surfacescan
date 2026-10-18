@@ -9,7 +9,8 @@ const float twopi=2.0f*static_cast<float>(CV_PI);
 const double ppmm_prealign=208.4; // pixels per mm for prealign images, used to convert wafer size in mm to pixels
 static LogMessageCallBack g_logCallback=nullptr; 
 ContourCalcParameter param_contour;
-std::vector <cv::Mat> centerCalculationImages;
+std::vector <cv::Mat> centerCalculationImages,contourCalculationImages;
+std::vector <float> centerCalculationAngles,contourCalculationAngles;
 std::vector <cv::Point2d> CwaferEstimated;
 std::mutex mtx_chsettings;
 std::map<DetectChannel, std::map<std::string, json>> chsettings;
@@ -220,7 +221,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 		if(defect.Area<=0) continue; // skip invalid entries
 		cv::Point center(static_cast<int>(defect.CoordX/pixelsize+image.cols/2),static_cast<int>(defect.CoordY/pixelsize+image.rows/2));
 		cv::Size axes(static_cast<int>(defect.XSize/2/pixelsize)+20,static_cast<int>(defect.YSize/2/pixelsize)+20);
-		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(255*256,0,0),2); // red ellipse
+		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,65530),2); // red ellipse
 		//defect_log<<std::format("Drawing defect at ({},{})px. R={}um, T={}deg, sizes=({},{})um, area={}px({}um^2), bin={}\n",center.x,center.y,defect.CoordR,defect.CoordT,defect.XSize,defect.YSize,defect.RawPixelsCount,defect.Area,defect.BinCode);
 
 		// place Area and BinCode text at the top of the ellipse, with a small offset to avoid overlap
@@ -293,6 +294,9 @@ extern "C"
 	AlgoResult Initialize()
 	{
 		centerCalculationImages.clear(); // Clear any previously stored images
+		centerCalculationAngles.clear(); // Clear any previously stored angles
+		contourCalculationImages.clear(); // Clear any previously stored images
+		contourCalculationAngles.clear(); // Clear any previously stored angles
 		CwaferEstimated.clear(); // Clear any previously stored estimated points 
 		{
 			std::lock_guard<std::mutex> lock(mtx_chsettings);
@@ -324,7 +328,6 @@ extern "C"
 	}
 	AlgoResult AddContourCalculationImage(const unsigned char* imageData,double stageAngle)
 	{
-		(void)stageAngle;
 		write_log(LogType::Info,"AddContourCalculationImage",std::format("Adding image of size {}x{} at stage angle {}",param_contour.ImageWidth,param_contour.ImageHeight,stageAngle).c_str());
 		cv::Mat img(param_contour.ImageHeight,param_contour.ImageWidth,CV_8UC1,const_cast<unsigned char*>(imageData));
 		if(img.empty()||img.type()!=CV_8UC1)
@@ -333,15 +336,39 @@ extern "C"
 			write_log(LogType::Error,"AddContourCalculationImage",std::format("invalid image on address {}",hexAddress).c_str());
 			return AlgoResult::Failure("Invalid image");
 		}
-		//contourCalculationImages.push_back(img.clone()); // Store a copy of the image
+		contourCalculationAngles.push_back(static_cast<float>(stageAngle));
+		contourCalculationImages.push_back(img.clone()); // Store a copy of the image
 		return AlgoResult::Success();
 	}
 	AlgoResult EndContourCalculation(double* transX,double* transY,double* angle)
 	{
 		(void)angle;
-		*transX=0.0;
+		*transX=1.0;
 		*transY=0.0;	
-		return AlgoResult::Success();
+		for(size_t i=0;i<contourCalculationImages.size();++i)
+		{
+			//write_log(LogType::Info,"EndContourCalculation",std::format("Processing contour image {} at stage angle {}",i,contourCalculationAngles[i]).c_str());
+			//process the image to find the contour and calculate the translation
+			cv::Mat img=contourCalculationImages[i];
+			if(img.empty())
+			{
+				write_log(LogType::Error,"EndContourCalculation",std::format("Contour image {} is empty",i).c_str());
+				continue;
+			}
+			auto edge_points=get_edge_points(img);
+			cv::Point2d valley,center;
+			bool notch_found=find_notch(edge_points,valley,center);// use find_notch() to determine if a notch is found 
+			if(notch_found)
+			{
+				*transX=center.x/ppmm_prealign;
+				*transY=center.y/ppmm_prealign;
+				*angle=contourCalculationAngles[i]+std::atan2(-valley.y+center.y,valley.x-center.x)*180.0/3.1416;//y axis is inverted in image coordinates
+				write_log(LogType::Info,"EndContourCalculation",std::format("Contour image {}: Notch found at ({},{}) using image with stage angle {}",i,valley.x,valley.y,contourCalculationAngles[i]).c_str());
+				return  AlgoResult::Success();
+			}
+			//write_log(LogType::Info,"EndContourCalculation",std::format("Contour image {} size: {}x{}",i,img.cols,img.rows).c_str());
+		}
+		return AlgoResult::Failure("Notch not found");
 	}
 	AlgoResult AddCenterCalculationImage(const unsigned char* imageData,double stageAngle)
 	{
@@ -355,50 +382,8 @@ extern "C"
 			return AlgoResult::Failure("Invalid image");
 		}
 
-		// Binary image 'imgb' from 'img' with threshold 30
-		cv::Mat imgb;
-		cv::threshold(img,imgb,30,255,cv::THRESH_BINARY);
+		auto pts=get_edge_points(img);
 
-		// Find contour of the largest black blob in imgb and save to contour_b
-		std::vector<std::pair<int,int>> contour_b;
-		{
-			// Invert so black regions become white for findContours
-			cv::Mat imgb_inv;
-			cv::bitwise_not(imgb,imgb_inv);
-
-			std::vector<std::vector<cv::Point>> contours;
-			cv::findContours(imgb_inv,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE);
-
-			if(contours.empty())
-				write_log(LogType::Warning, "AddCenterCalculationImage", "no contours found");
-			else 
-			{ // select largest by area
-				double maxArea=0.0;
-				int maxIdx=-1;
-				for(size_t i=0; i<contours.size(); ++i) {
-					double a=std::abs(cv::contourArea(contours[i]));
-					if(a>maxArea) { maxArea=a; maxIdx=static_cast<int>(i); }
-				}
-				if(maxIdx>=0) {
-					const auto& c=contours[maxIdx];
-					contour_b.reserve(c.size());
-					for(const auto& pt:c) contour_b.emplace_back(pt.x,pt.y);
-					// optional debug print
-					//write_log(LogType::Debug, "AddCenterCalculationImage", std::format("largest contour size={}, area={}", contour_b.size(), maxArea).c_str());
-				}
-			}
-		}
-
-		// Collect edge points from contour_b
-		std::vector<cv::Point2d> pts;
-		pts.reserve(contour_b.size());
-		for(const auto& p:contour_b)
-		{
-			auto x=static_cast<int>(p.first),y=static_cast<int>(p.second);
-			if(x==0||y==0||x>=img.cols-1||y>=img.rows-1)
-				continue; // skip border points
-			pts.emplace_back(static_cast<double>(x),static_cast<double>(y));
-		}
 		//write_log(LogType::Debug, "AddCenterCalculationImage", std::format("collected {} edge points from contour_b", pts.size()).c_str());
 
 		if(pts.size()<100)
@@ -407,7 +392,7 @@ extern "C"
 			return AlgoResult::Failure(err.c_str());
 		}
 
-		auto id=centerCalculationImages.size();//define a unique id for this image based on the current size of the vector
+		//auto id=centerCalculationImages.size();//define a unique id for this image based on the current size of the vector
 
 		/*
 		//  Fit circle (Kasa least-squares method)
@@ -468,6 +453,8 @@ extern "C"
 			int tx=cvRound(x0+nx*testDist),ty=cvRound(y0+ny*testDist);
 
 			bool normalPointsInward=false;
+			cv::Mat imgb;
+			cv::threshold(img,imgb,30,255,cv::THRESH_BINARY);
 			if(tx>=0&&tx<imgb.cols&&ty>=0&&ty<imgb.rows)
 				if(imgb.at<uchar>(ty,tx)>128)
 					normalPointsInward=true;
@@ -480,8 +467,11 @@ extern "C"
 			// Find Cwafer, the wafer center, using R_wafer_px
 			cv::Point2d Cwafer(x0+nx*R_wafer_px,y0+ny*R_wafer_px);
 			write_log(LogType::Info, "AddCenterCalculationImage", std::format("M=({},{}), Cwafer=({},{}), R_wafer_px={}", M.x, M.y, Cwafer.x, Cwafer.y, R_wafer_px).c_str());
-			cv::line(lineOverlay,M,Cwafer,cv::Scalar(255,0,0),2,cv::LINE_AA); //Blue for the radius connecting M and Cwafer 
-			cv::line(lineOverlay,p1,p2,cv::Scalar(0,0,255),2,cv::LINE_AA); //Red for fitted line
+			////Alternative code path: use ransac_fit_circle to fit a circle to the edge points and estimate Cwafer
+			//int num_inliers=ransac_fit_circle(pts,Cwafer.x,Cwafer.y,R_wafer_px,10000,0.1);
+			//write_log(LogType::Info,"AddCenterCalculationImage",std::format("RANSAC fitted circle: inlier={} Cwafer=({},{}), R_wafer_px={}, Inliers={}",num_inliers,Cwafer.x,Cwafer.y,R_wafer_px,num_inliers).c_str());
+			//cv::line(lineOverlay,M,Cwafer,cv::Scalar(255,0,0),2,cv::LINE_AA); //Blue for the radius connecting M and Cwafer 
+			//cv::line(lineOverlay,p1,p2,cv::Scalar(0,0,255),2,cv::LINE_AA); //Red for fitted line
 			//Draw the circle on the overlay image (yellow)
 			//cv::circle(lineOverlay, Cwafer, cvRound(R_wafer_px), cv::Scalar(0, 255, 128), 2, cv::LINE_8);//red
 			std::vector<cv::Point> arc_pts;
@@ -493,18 +483,15 @@ extern "C"
 				int py=cvRound(Cwafer.y+R_wafer_px*std::sin(a));
 				arc_pts.push_back(cv::Point(px,py));
 			}
-			cv::polylines(lineOverlay,arc_pts,false,cv::Scalar(0,255,128),2,cv::LINE_AA);
-			// mark the point M on the line used by fitLine (white circle)
-			cv::circle(lineOverlay,M,4,cv::Scalar(255,255,255),-1,cv::LINE_AA);
+			cv::polylines(lineOverlay,arc_pts,false,cv::Scalar(0,255,128),2,cv::LINE_AA);// draw the arc of the circle (green)
+			cv::circle(lineOverlay,M,4,cv::Scalar(255,255,255),-1,cv::LINE_AA); // mark the point M on the line used by fitLine (white circle)
 			// mark Cwafer (red circle)
 			//cv::circle(lineOverlay,Cwafer,6,cv::Scalar(0,0,255),-1,cv::LINE_AA);
 			//save overlayimage
-			cv::imwrite(std::format("{}_fitted_line_overlay.png",id),lineOverlay);
+			cv::imwrite(std::format("{}_fitted_line_overlay.png",stageAngle),lineOverlay);
 
-			//double theta=std::rand()%360; // random angle for demonstration
-			//Cwafer.x=-10.0+R_wafer_px*std::cos(theta*3.14159265358979323846/180.0);
-			//Cwafer.y=-13.0+R_wafer_px*std::sin(theta*3.14159265358979323846/180.0);
-			CwaferEstimated.emplace_back(static_cast<double>(Cwafer.x),static_cast<double>(Cwafer.y));
+			CwaferEstimated.emplace_back(static_cast<double>(Cwafer.x),static_cast<double>(-Cwafer.y));
+			centerCalculationAngles.push_back(static_cast<float>(stageAngle));
 		}
 		//{// Save processed contour points to an overlay image for visualization
 		//	std::vector<cv::Point> cpts;
@@ -527,11 +514,18 @@ extern "C"
 		if(CwaferEstimated.size()<3)
 			return AlgoResult::Failure("Not enough estimated wafer centers");
 
+		std::ofstream ofs_center("CwaferEstimated.txt");
+		ofs_center<<"ID\tAngle(deg)\tX(pixels)\tY(pixels)\n";
+		for(size_t i = 0; i < CwaferEstimated.size(); ++i) {
+			const auto& p = CwaferEstimated[i];
+			ofs_center << i << "\t" << centerCalculationAngles[i] << "\t" << p.x << "\t" << p.y << "\n";
+		}
 		double sumX=0,sumY=0,sumX2=0,sumY2=0,sumXY=0;
 		double sumX3=0,sumY3=0,sumX2Y=0,sumXY2=0;
 		size_t n=CwaferEstimated.size();
 
-		for(const auto& p:CwaferEstimated) {
+		for(size_t i = 0; i < CwaferEstimated.size(); ++i) {
+			const auto& p = CwaferEstimated[i];
 			sumX+=p.x;
 			sumY+=p.y;
 			sumX2+=p.x*p.x;
@@ -555,7 +549,7 @@ extern "C"
 
 		if(dx) *dx=(d*c-b*e)/det;
 		if(dy) *dy=(a*e-b*d)/det;
-		if(angle) *angle=0.0; // Angle usually derived from a notch/flat, defaulting to 0
+		if(angle) *angle=17.0; // Angle (from C_SA to C_CA) usually derived from a notch/flat, defaulting to 17.0
 
 		return AlgoResult::Success();
 	}
@@ -848,15 +842,15 @@ extern "C"
 		{
 			std::vector<int> outputparams; 
 			outputparams.push_back(cv::IMWRITE_PNG_COMPRESSION);
-			outputparams.push_back(0);
+			outputparams.push_back(1);
 			outputparams.push_back(cv::IMWRITE_EXR_COMPRESSION);
 			outputparams.push_back(0);
 			//outputparams.push_back(cv::IMWRITE_JPG_COMPRESSION);
 			//outputparams.push_back(0);
 			write_log(LogType::Info,"EndChannelProcess","Saving fullmap");
 			//cv::imwrite(dirout+std::format("/ch{}_fullmap.exr",static_cast<int>(channelID)),fullimage,outputparams); 
-			//cv::imwrite(dirout+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage,outputparams); 
-			saveBigTiff(dirout+std::format("/ch{}_fullmap.tiff",static_cast<int>(channelID)),fullimage);
+			cv::imwrite(dirout+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage,outputparams); 
+			//saveBigTiff(dirout+std::format("/ch{}_fullmap.tiff",static_cast<int>(channelID)),fullimage);
 			auto imwrite_as16bit=[](const std::string& path,const cv::Mat& img32f)
 				{
 					cv::Mat img;
