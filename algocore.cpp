@@ -26,8 +26,9 @@ void estimate_column_intensity_stat_impl(const cv::Mat& image, std::vector<doubl
     int W = image.cols;
     int H = image.rows;
     const int N = 10000;
-    const int start_idx = 4500;
-	const int end_idx=5500;
+	//const int start_idx=0000,end_idx=2000;
+	const int start_idx=4500,end_idx=5500;
+	//const int start_idx=000,end_idx=10000;
     const int valid_samples = end_idx - start_idx;
 
     // Use a fixed base seed to ensure cross-run determinism

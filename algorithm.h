@@ -89,7 +89,7 @@ struct ContourCalcParameter
     double FeatureAngle;        // 预估角度（度）
     int    ImageHeight;         // 图像高度（像素）
     int    ImageWidth;          // 图像宽度（像素）
-    double PixelSize;           // 像素尺寸（mm/pixel）
+    double PixelSize;           // 像素尺寸（um/pixel）
     SearchDirection Direction;  // 寻边方向
     int    Threshold;           // 二值化阈值（0-255）
 };
@@ -289,7 +289,7 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 ///     "IntensityCalibration": string,   //  光强校准策略 None|Haze|SelfHaze|RefHaze
 ///     "ImageSaveDirectory": string,
 ///     "DebugOutput": bool,             //bool: whether to save intermediate results for debugging
-///     "WaferMaterial": string             // string: Wafer material, "silicon" or "glass"
+///     "Material": string             // string: Wafer material, "silicon" or "glass" or "tialsi"
 /// }
 /// cluster: {
 ///     "WaferRadius": float,            // 晶圆半径mm

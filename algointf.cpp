@@ -6,7 +6,6 @@
 using json = nlohmann::json;
 
 const float twopi=2.0f*static_cast<float>(CV_PI);
-const double ppmm_prealign=208.4; // pixels per mm for prealign images, used to convert wafer size in mm to pixels
 static LogMessageCallBack g_logCallback=nullptr; 
 ContourCalcParameter param_contour;
 std::vector <cv::Mat> centerCalculationImages,contourCalculationImages;
@@ -14,10 +13,11 @@ std::vector <float> centerCalculationAngles,contourCalculationAngles;
 std::vector <cv::Point2d> CwaferEstimated;
 std::mutex mtx_chsettings;
 std::map<DetectChannel, std::map<std::string, json>> chsettings;
-const double intensity_normalizer=100.0;
+//const double intensity_normalizer=100.0;
 bool DebugOutput=false;
 float pixelsize;
 bool flag_glass=false;//true: glass wafer, false: silicon wafer
+bool flag_tialsi=false;//true: TiAlSi coating, false: no coating
 struct Ring
 {
 	int index;
@@ -131,8 +131,8 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 					intg+=image.at<float>(i,j);
 		int center_x=static_cast<int>(centroids.at<double>(lbl,0));
 		int center_y=static_cast<int>(centroids.at<double>(lbl,1));
-		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore a region for glass wafer
-		if(flag_glass&&(!(center_x>10000&&center_x<31000&&center_y>22000)))//ignore a region for glass wafer
+		if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore a region for glass wafer
+		//if(flag_glass&&(!(center_x>10000&&center_x<31000&&center_y>22000)))//ignore a region for glass wafer
 			continue;
 		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
 
@@ -293,6 +293,7 @@ extern "C"
 	}
 	AlgoResult Initialize()
 	{
+		g_logCallback=nullptr; // Reset log callback to null
 		centerCalculationImages.clear(); // Clear any previously stored images
 		centerCalculationAngles.clear(); // Clear any previously stored angles
 		contourCalculationImages.clear(); // Clear any previously stored images
@@ -342,9 +343,6 @@ extern "C"
 	}
 	AlgoResult EndContourCalculation(double* transX,double* transY,double* angle)
 	{
-		(void)angle;
-		*transX=1.0;
-		*transY=0.0;	
 		for(size_t i=0;i<contourCalculationImages.size();++i)
 		{
 			//write_log(LogType::Info,"EndContourCalculation",std::format("Processing contour image {} at stage angle {}",i,contourCalculationAngles[i]).c_str());
@@ -360,14 +358,15 @@ extern "C"
 			bool notch_found=find_notch(edge_points,valley,center);// use find_notch() to determine if a notch is found 
 			if(notch_found)
 			{
-				*transX=center.x/ppmm_prealign;
-				*transY=center.y/ppmm_prealign;
+				*transX=center.x*param_contour.PixelSize/1000.0; // convert to mm
+				*transY=-center.y*param_contour.PixelSize/1000.0; // convert to mm
 				*angle=contourCalculationAngles[i]+std::atan2(-valley.y+center.y,valley.x-center.x)*180.0/3.1416;//y axis is inverted in image coordinates
 				write_log(LogType::Info,"EndContourCalculation",std::format("Contour image {}: Notch found at ({},{}) using image with stage angle {}",i,valley.x,valley.y,contourCalculationAngles[i]).c_str());
 				return  AlgoResult::Success();
 			}
 			//write_log(LogType::Info,"EndContourCalculation",std::format("Contour image {} size: {}x{}",i,img.cols,img.rows).c_str());
 		}
+		write_log(LogType::Error,"EndContourCalculation",std::format("Notch not found ").c_str());
 		return AlgoResult::Failure("Notch not found");
 	}
 	AlgoResult AddCenterCalculationImage(const unsigned char* imageData,double stageAngle)
@@ -426,7 +425,7 @@ extern "C"
 		cv::Vec4f lineParams;
 		cv::fitLine(pts,lineParams,cv::DIST_L2,0,0.01,0.01);
 		//double R_wafer_px=param_contour.WaferSize/2*208.4;
-		double R_wafer_px=param_contour.WaferSize/2*ppmm_prealign;
+		double R_wafer_px=param_contour.WaferSize/param_contour.PixelSize;
 		//R_wafer_px=10000;
 
 		{ // draw the fitted line on a new overlay image
@@ -569,8 +568,11 @@ extern "C"
 		rings[channelID]=std::vector<Ring>(chsettings[channelID]["ring"]["TotalRings"]);
 		if(chsettings[channelID]["ring"].find("DebugOutput")!=chsettings[channelID]["ring"].end())
 			DebugOutput=chsettings[channelID]["ring"]["DebugOutput"];
-		if(chsettings[channelID]["ring"].find("WaferMaterial")!=chsettings[channelID]["ring"].end())
-			flag_glass=chsettings[channelID]["ring"]["WaferMaterial"]=="glass";
+		if(chsettings[channelID]["ring"].find("Material")!=chsettings[channelID]["ring"].end())
+		{
+			flag_glass=chsettings[channelID]["ring"]["Material"]=="glass";
+			flag_tialsi=chsettings[channelID]["ring"]["Material"]=="tialsi";
+		}
 		pixelsize=chsettings[channelID]["classification"]["PixelSize"];
 		//std::println("setting pixelsize as {}",pixelsize);
 		return AlgoResult::Success();
@@ -719,6 +721,11 @@ extern "C"
 				cv::Mat dehazed=flattened-haze;//allow negative values to remain
 				if(flag_glass&&kr>=5) //ignore the central rings for glass wafer
 					dehazed=0;
+				if(flag_tialsi&&kr>=10) //ignore the central rings for glass wafer
+				{
+					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {} is ignored for tialsi wafer",static_cast<int>(channelID),kr).c_str());
+					dehazed=0; 
+				}
 				//cv::Mat dehazed;
 				//cv::max(0,flattened-haze,dehazed);
 				rings_copy[kr].dehazed=dehazed;
@@ -850,6 +857,7 @@ extern "C"
 			write_log(LogType::Info,"EndChannelProcess","Saving fullmap");
 			//cv::imwrite(dirout+std::format("/ch{}_fullmap.exr",static_cast<int>(channelID)),fullimage,outputparams); 
 			cv::imwrite(dirout+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage,outputparams); 
+			cv::imwrite(dirout+std::format("/ch{}_fullmap_4ev.png",static_cast<int>(channelID)),fullimage*16,outputparams); 
 			//saveBigTiff(dirout+std::format("/ch{}_fullmap.tiff",static_cast<int>(channelID)),fullimage);
 			auto imwrite_as16bit=[](const std::string& path,const cv::Mat& img32f)
 				{
@@ -867,17 +875,18 @@ extern "C"
 				cv::Mat dehazed_16UC1; 
 				dehazed.convertTo(dehazed_16UC1,CV_16UC1); 
 				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize);
-				cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
+				//cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
 				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
 				cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
+				cv::imwrite(dirout+std::format("/ch{}_dehazed_enhanced.png",static_cast<int>(channelID)),dehazed_16UC1*256,outputparams);
 				//dehazed_annotation*=256;
 				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated_enhanced.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				dehazed.release();
 				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
 				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
-				cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
+				//cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
 				//cv::imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
 				//saveBigTiff(dirout+std::format("/ch{}_annotated.tiff",static_cast<int>(channelID)),defect_annotation);
 				//defect_annotation*=16;

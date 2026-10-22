@@ -99,7 +99,7 @@ TEST_F(AlgoTest,cencal)
 }
 TEST_F(AlgoTest,contcal)
 { 
-	auto res_calbegin=BeginContourCalculation({200.0, ContourFeature::Notch, 45.0, 1200, 1920, 0.1, SearchDirection::TopToBottom, 128});
+	auto res_calbegin=BeginContourCalculation({200.0, ContourFeature::Notch, 45.0, 1200, 1920,4.785 , SearchDirection::TopToBottom, 128});
 	ASSERT_EQ(res_calbegin.IsSuccess,true)<<"Contour calculation failed: "<<res_calbegin.ErrorMessage;
 
 	//load images from the directory

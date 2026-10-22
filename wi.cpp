@@ -15,15 +15,15 @@ int main(int argc,char* argv[])
 	options.add_options()
 		("i,pathin","Input directory",cxxopts::value<std::string>()->default_value(pathin_default))
 		("o,pathout","Output directory",cxxopts::value<std::string>()->default_value(pathout_default))
-		("material","Wafer material: \"silicon\" or \"glass\"",cxxopts::value<std::string>()->default_value("silicon"))
+		("material","Wafer material: \"silicon\", \"glass\", \"tialsi\"",cxxopts::value<std::string>()->default_value("silicon"))
 		("thr_snr","Signal-to-noise ratio threshold",cxxopts::value<float>()->default_value(std::to_string(thr_snr_default)))
 		("thr_intg","Integration threshold",cxxopts::value<float>()->default_value(std::to_string(thr_intg_default)))
 		("h,help","Print usage");
 	auto arguments=options.parse(argc,argv); 
 	std::string material=arguments["material"].as<std::string>();
-	if(material!="silicon"&&material!="glass") 
+	if(material!="silicon"&&material!="glass"&&material!="tialsi") 
 	{
-		std::cerr<<"Invalid wafer material: "<<material<<". Must be \"silicon\" or \"glass\"."<<std::endl;
+		std::cerr<<"Invalid wafer material: "<<material<<". Must be \"silicon\" or \"glass\" or \"tialsi\"."<<std::endl;
 		return 1;
 	} 
 	if(arguments.count("help")||!arguments.count("pathin")||!arguments.count("pathout")) {
@@ -105,7 +105,7 @@ int main(int argc,char* argv[])
 		std::string pathout=arguments["pathout"].as<std::string>();
 		if(pathout!=""&&!std::filesystem::exists(pathout))
 			std::filesystem::create_directories(pathout);
-		std::string ringsettings=std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},  "ImageSaveDirectory":"{}", "DebugOutput":true, "WaferMaterial":"{}"}})",
+		std::string ringsettings=std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},  "ImageSaveDirectory":"{}", "DebugOutput":true, "Material":"{}"}})",
 			FrameWidth,FrameHeight,TotalRings,pathout,material);
 		//std::string DSizeCurveStr=std::format(R"({{"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": {}, "DSize": 200.0}, {"Intensity": 255.0, "DSize": 1000.0}]}})", detection_threshold); 
 		float thr_intg=arguments["thr_intg"].as<float>();
