@@ -643,6 +643,17 @@ extern "C"
 		(void)ringIndex;(void)channelID;
 		//if(isOverLoad)*isOverLoad=false; 
 		//if(isHazeOverload)*isHazeOverload=false;
+		if(DebugOutput) //sample the data and write to a text file for debugging purposes
+		{
+			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
+			std::string dirout=chsettings[channelID]["ring"]["ImageSaveDirectory"];
+			std::string fn=std::format("{}/intensity_tangential_{}.txt",dirout,ringIndex);
+			std::ofstream ofs(fn);
+			ofs<<"SampleID\tIntensity\n";
+			auto intndist=get_intensity_distribution(rings[channelID][ringIndex].img,-1);
+			for(int i=0;i<intndist.size();++i)
+				ofs<<i<<"\t"<<intndist[i]<<"\n";
+		}
 		//Remove the left columns of 'overlapPixels' from the ring image
 		int overlapPixels=rings[channelID][ringIndex].overlapPixels;
 		if(overlapPixels>0)

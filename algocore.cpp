@@ -91,6 +91,7 @@ std::vector<double> estimate_column_intensity_stat(const cv::Mat &image)
 
 cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfilename) 
 {
+	(void)r_inner; (void)r_outer;
     if (image.empty()) 
 		throw std::invalid_argument("algocore.cpp: flatten(): Input image is empty");
     
@@ -115,15 +116,18 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
 		std::cerr<<"Error in estimate_column_intensity_stat: "<<e.what()<<std::endl;
 		throw std::runtime_error("Error in estimate_column_intensity_stat: "+std::string(e.what()));
     }
+	//if(colavg[1]>4096)
+	//	throw std::runtime_error("Input image is not 12-bit data in a 16-bit container. The average column intensity is greater than 4096, which is not expected for 12-bit data.");
     //correct colavg because the intensity are distributed on circles with radius from r_inner to r_outer
     std::vector<double> correction_factor;
     const float pixelsize=4.832e-3f;//mm/pixel
     //std::println("flatten: r_inner={}, r_outer={}",r_inner,r_outer);
     for(int x=0; x<W; ++x)
     { 
-        double cf=r_outer/(pixelsize*x+r_inner+0.001f);
-        correction_factor.push_back(cf); 
-        colavg[x]*=cf;
+        //double cf=r_outer/(pixelsize*(x+1)+r_inner);
+        //double cf=r_outer/(pixelsize*x+r_inner+0.001f);
+        //correction_factor.push_back(cf); 
+        //colavg[x]*=cf;
     }
 	//auto colavg=estimate_column_intensity_stat(image);
 
@@ -197,6 +201,40 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
 	{
 		throw std::runtime_error("Error during flattening - column scaling process: "+std::string(e.what()));
 	} 
+}
+std::vector<float> get_intensity_distribution(const cv::Mat& image,int column_index)
+{
+	if(image.empty() || column_index < -1 || column_index >= image.cols)
+		return {};
+	if(image.channels()!=1)
+		throw std::invalid_argument("Input image must be single-channel");
+
+	cv::Mat float_image;
+	image.convertTo(float_image,CV_32F);
+
+	const std::size_t total_samples=10000;
+
+	std::vector<float> intensities;
+	intensities.reserve(total_samples);
+
+	if(column_index==-1)
+		for(int k=0; k<total_samples; ++k)
+		{
+			int x=std::rand()%float_image.cols;
+			int y=std::rand()%float_image.rows;
+			float pixel=float_image.at<float>(y,x);
+			intensities.push_back(pixel);
+		}
+	else
+		for(int k=0; k<total_samples; ++k)
+		{
+			int y=std::rand()%float_image.rows;
+			float pixel=float_image.at<float>(y,column_index);
+			intensities.push_back(pixel);
+		}
+
+	std::sort(intensities.begin(),intensities.end());
+	return intensities;
 }
 
 int ransac_fit_circle(const std::vector<cv::Point2d>& points,double& best_circle_x,double& best_circle_y,double& best_circle_r,int iterations,double threshold)
