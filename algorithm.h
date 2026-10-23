@@ -376,6 +376,7 @@ ALGO_API AlgoResult BeginChannelProcess(DetectChannel channelID,
 ///     },
 ///     "RingWidth": float,                  // 当前圈的宽度（pixel）
 ///     "RingHeight": float,                 // 当前圈的总高度（pixel）
+///     "OverlapPixels": int,                // 当前圈与下一圈的重叠像素数
 ///     "CurrentRing": int,                  // 当前圈索引
 ///     "TotalRings": int                    // 总圈数
 /// }

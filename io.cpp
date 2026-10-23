@@ -1,12 +1,12 @@
+#include "io.h"
+
 #ifndef _WIN64 
 #include <cstddef>
 bool save_to_mmap(const char* name,const void* data,size_t size){ return false; } 
 void load_from_mmap(const char* name,void** data,size_t* size){}
 void release_all_mmap() {}
 #else 
-#include <windows.h>
-#include "io.h"
-
+#include <windows.h> 
 std::map<void*,HANDLE> g_mmap_registry;
 bool save_to_mmap(const char* name, const void* data, size_t size)
 {
@@ -97,6 +97,7 @@ void release_all_mmap()
      g_mmap_registry.clear();
 }
 #endif
+
 std::map<std::string, std::vector<float>> readRingParaCSV(const std::string& filename) {
     std::map<std::string, std::vector<float>> dataMap;
     std::ifstream file(filename);

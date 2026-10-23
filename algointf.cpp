@@ -28,6 +28,7 @@ struct Ring
 	float theta0,theta1; // [in radians] starting angle for this ring
 	json processSetting, hazeCaliSetting, coordCaliSetting;
 	float radius_mm; // radius of this ring in mm 
+	int overlapPixels;// number of pixels overlapping with the next ring
 };
 std::mutex mtx_rings;
 std::map<DetectChannel,std::vector<Ring>> rings; //data structure to hold rings for each channel
@@ -603,6 +604,7 @@ extern "C"
 		ring.theta0=theta0_angle/180.0f * static_cast<float>(CV_PI); //coverting to radians if needed, but assuming the input is in degrees or radians as required
 		while(ring.theta0>twopi) ring.theta0-=twopi;
 		ring.theta1=ring.theta0+thetadiff_angle/180.0f * static_cast<float>(CV_PI); 
+		ring.overlapPixels=coordCaliJson["OverlapPixels"];
 
 		//ring.theta1=ring.theta0+thetadiff_angle/180.0f * static_cast<float>(CV_PI); 
 		//std::println("BeginRingProcess: ringIndex={}, theta0={} rad, theta1={} rad",ringIndex,ring.theta0,ring.theta1);
@@ -641,6 +643,15 @@ extern "C"
 		(void)ringIndex;(void)channelID;
 		//if(isOverLoad)*isOverLoad=false; 
 		//if(isHazeOverload)*isHazeOverload=false;
+		//Remove the left columns of 'overlapPixels' from the ring image
+		int overlapPixels=rings[channelID][ringIndex].overlapPixels;
+		if(overlapPixels>0)
+		{
+			cv::Mat &img=rings[channelID][ringIndex].img;
+			if(overlapPixels<img.cols)
+				img=cv::Mat(img,cv::Rect(overlapPixels,0,img.cols-overlapPixels,img.rows)).clone();
+			write_log(LogType::Info,"EndRingProcess",std::format("channelID={}, ringIndex={}, removed {} overlap pixels, new size {}x{}",static_cast<int>(channelID),ringIndex,overlapPixels,img.cols,img.rows).c_str());
+		}
 		return AlgoResult::Success();
 	} 
 
@@ -672,8 +683,8 @@ extern "C"
 		} 
 		const int W=2*std::accumulate(ringWidths.begin(),ringWidths.end(),0);
 		const int H=W;
-		int N=11;// number of rings
-		float thr_snr=1.8f;
+		int N=rings_copy.size();
+		float thr_snr=1.8f;//default value, will be overwritten by settings
 		try
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
@@ -726,8 +737,6 @@ extern "C"
 					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {} is ignored for tialsi wafer",static_cast<int>(channelID),kr).c_str());
 					dehazed=0; 
 				}
-				//cv::Mat dehazed;
-				//cv::max(0,flattened-haze,dehazed);
 				rings_copy[kr].dehazed=dehazed;
 
 				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {} ready for inspection",static_cast<int>(channelID),kr).c_str());
@@ -856,8 +865,7 @@ extern "C"
 			//outputparams.push_back(0);
 			write_log(LogType::Info,"EndChannelProcess","Saving fullmap");
 			//cv::imwrite(dirout+std::format("/ch{}_fullmap.exr",static_cast<int>(channelID)),fullimage,outputparams); 
-			cv::imwrite(dirout+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage,outputparams); 
-			cv::imwrite(dirout+std::format("/ch{}_fullmap_4ev.png",static_cast<int>(channelID)),fullimage*16,outputparams); 
+			//save a vertically flipped version of the full image to match the coordinate system used in the inspection
 			//saveBigTiff(dirout+std::format("/ch{}_fullmap.tiff",static_cast<int>(channelID)),fullimage);
 			auto imwrite_as16bit=[](const std::string& path,const cv::Mat& img32f)
 				{
@@ -865,8 +873,16 @@ extern "C"
 					img32f.convertTo(img,CV_16UC1);
 					cv::imwrite(path,img);
 				};
+			auto imwrite_vflipped=[](const std::string& path,const cv::Mat& img)
+				{
+					cv::Mat img_flipped;
+					cv::flip(img, img_flipped, 0);
+					cv::imwrite(path,img_flipped);
+				};
+			imwrite_vflipped(dirout+std::format("/ch{}_fullmap.png",static_cast<int>(channelID)),fullimage);
 			if(DebugOutput)
 			{
+				imwrite_vflipped(dirout+std::format("/ch{}_fullmap_4ev.png",static_cast<int>(channelID)),fullimage*16);
 				//write_log(LogType::Info,"EndChannelProcess","Saving haze map");
 				//imwrite_as16bit(dirout+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
 				//cv::imwrite(dirout+std::format("/ch{}_haze.png",static_cast<int>(channelID)),haze);
@@ -878,8 +894,8 @@ extern "C"
 				//cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
 				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
-				cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256,outputparams);
-				cv::imwrite(dirout+std::format("/ch{}_dehazed_enhanced.png",static_cast<int>(channelID)),dehazed_16UC1*256,outputparams);
+				imwrite_vflipped(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256);
+				imwrite_vflipped(dirout+std::format("/ch{}_dehazed_enhanced.png",static_cast<int>(channelID)),dehazed_16UC1*256);
 				//dehazed_annotation*=256;
 				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated_enhanced.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				dehazed.release();
@@ -887,11 +903,11 @@ extern "C"
 				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
 				//cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
-				//cv::imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16,outputparams);
+				imwrite_vflipped(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
 				//saveBigTiff(dirout+std::format("/ch{}_annotated.tiff",static_cast<int>(channelID)),defect_annotation);
 				//defect_annotation*=16;
 				//saveBigTiff(dirout+std::format("/ch{}_annotated_4ev.tiff",static_cast<int>(channelID)),defect_annotation);
-				cv::imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256,outputparams); 
+				imwrite_vflipped(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");

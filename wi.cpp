@@ -44,6 +44,7 @@ int main(int argc,char* argv[])
 			int ringWidth=0;
 			int ringHeight=0;
 			float radius_mm=1.0f;
+			int overlapPixels=0;
 		};
 
 		std::vector<RingInfo> rings;
@@ -58,6 +59,7 @@ int main(int argc,char* argv[])
 		const std::vector<float> radii=ringParamMap["Radius"];
 		const std::vector<float> validRows_float=ringParamMap["ValidLines"];
 		const float pixelsize=ringParamMap["PixelSizeUm"][0];
+		const std::vector<float> overlapPixels=ringParamMap["OverlapPixels"];
 		std::vector<int> validRows(validRows_float.size());
 		std::transform(validRows_float.begin(),validRows_float.end(),validRows.begin(),[](float f){ return static_cast<int>(f+0.001f); });
 		std::println("Read {} rings from CSV. ValidRows: {}",validRows.size(),validRows[0]);
@@ -86,6 +88,7 @@ int main(int argc,char* argv[])
 
 			info.ringWidth=first_img.cols;
 			info.ringHeight=validRows[info.kr]; // Use the validRows from CSV for ringHeight
+			info.overlapPixels=static_cast<int>(overlapPixels[info.kr]+0.001f);
 			rings.push_back(info);
 			kr++;
 		}
@@ -125,8 +128,8 @@ int main(int argc,char* argv[])
 		{
 			float theta0=theta0s[ring.kr],theta1=theta1s[ring.kr]; //triggered start and end angles in degrees
 			//float theta0 = -68.0f, theta1 = theta0 + 360.0f; //triggered start and end angles in degrees
-			std::string coordCaliSetting_jsonstr=std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggerStart\":{{\"T\":{},\"R\":{}}}, \"TriggerEnd\":{{\"T\":{}}}}}",
-				ring.ringWidth,ring.ringHeight,theta0,ring.radius_mm,theta1);
+			std::string coordCaliSetting_jsonstr=std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"TriggerStart\":{{\"T\":{},\"R\":{}}}, \"TriggerEnd\":{{\"T\":{}}}, \"OverlapPixels\":{}}}",
+				ring.ringWidth,ring.ringHeight,theta0,ring.radius_mm,theta1,ring.overlapPixels);
 			//std::println("Ring {} coordCaliSetting JSON string: {}",ring.kr,coordCaliSetting_jsonstr);
 			std::string processSetting_jsonstr=std::format("{{\"RingWidth\":{}, \"RingHeight\":{}, \"FrameWidth\":{}, \"FrameHeight\":{}}}",
 				ring.ringWidth,ring.ringHeight,FrameWidth,FrameHeight);
