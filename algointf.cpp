@@ -3,6 +3,7 @@
 #include <tiffio.h> // Requires libtiff-dev
 #include <nlohmann/json.hpp>
 #include "io.h"
+import std;
 using json = nlohmann::json;
 
 const float twopi=2.0f*static_cast<float>(CV_PI);

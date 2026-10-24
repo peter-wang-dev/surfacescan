@@ -1,11 +1,6 @@
-#include "io.h"
-
-#ifndef _WIN64 
-#include <cstddef>
-bool save_to_mmap(const char* name,const void* data,size_t size){ return false; } 
-void load_from_mmap(const char* name,void** data,size_t* size){}
-void release_all_mmap() {}
-#else 
+#include "io.h" 
+import std;
+#ifdef _WIN64 
 #include <windows.h> 
 std::map<void*,HANDLE> g_mmap_registry;
 bool save_to_mmap(const char* name, const void* data, size_t size)

@@ -39,7 +39,7 @@ protected:
 };
 TEST_F(AlgoTest,cencal)
 { 
-	auto res_calbegin=BeginCenterCalculation({200.0, ContourFeature::Notch, 45.0, 1200, 1920, 0.1, SearchDirection::TopToBottom, 128});
+	auto res_calbegin=BeginCenterCalculation({200.0, ContourFeature::Notch, 45.0, 1200, 1920, 4.784688, SearchDirection::TopToBottom, 128});
 	ASSERT_EQ(res_calbegin.IsSuccess,true)<<"Center calculation failed: "<<res_calbegin.ErrorMessage;
 
 	//load images from the directory
@@ -52,8 +52,8 @@ TEST_F(AlgoTest,cencal)
 	fs::path dir = path_input+"/261015_align"; 
 	ASSERT_EQ(fs::exists(dir),true)<<"Directory not found: "<<dir.string();
 	ASSERT_EQ(fs::is_directory(dir),true)<<"Not a directory: "<<dir.string();
-	std::vector<fs::path> files;
-	std::vector<float> angles;
+	std::vector<std::pair<float, fs::path>> files;
+	//std::vector<float> angles;
 	for (auto const& entry : fs::directory_iterator(dir)) 
 	{
 		if (!entry.is_regular_file()) continue;
@@ -64,29 +64,30 @@ TEST_F(AlgoTest,cencal)
 		std::regex re(R"((\d+))");
 		std::smatch match;
 		std::string filename = entry.path().filename().string();
+		int angle=0;
 		if (std::regex_search(filename, match, re)) {
-			int number = std::stoi(match.str(1));
-			if (skip_numbers.find(number) != skip_numbers.end())
+			angle = std::stoi(match.str(1));
+			if (skip_numbers.find(angle) != skip_numbers.end())
 				continue;
-			angles.push_back(static_cast<float>(number));
+			//angles.push_back(static_cast<float>(angle));
 		}
 		auto ext = entry.path().extension().string();
 		std::println("Found file: {} with extension: {}",entry.path().string(),ext);
 		std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
 		if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tif" || ext == ".tiff")
-			files.push_back(entry.path());
+			files.push_back({static_cast<float>(angle), entry.path()});
 	} 
-	//std::sort(files.begin(), files.end());
+	std::sort(files.begin(),files.end(),[](const auto& a,const auto& b) { return a.first<b.first; }); 
 	for (size_t i = 0; i < files.size(); ++i) {
-		auto const& p = files[i];
+		auto const& [angle, p] = files[i];
 		cv::Mat img = cv::imread(p.string(), cv::IMREAD_UNCHANGED);
 		if (img.empty()) {
 			std::cerr << "Failed to load image: " << p.string() << std::endl;
 			continue;
 		}
 		images.push_back(img);
-		std::println("Loaded image: {} ({}x{})",p.string(),img.cols,img.rows);
-		auto res_add=AddCenterCalculationImage(img.data,angles[i]); 
+		std::println("Loaded image: {} ({}x{}) for angle {}",p.string(),img.cols,img.rows,angle);
+		auto res_add=AddCenterCalculationImage(img.data,angle); 
 		if(!res_add.IsSuccess)
 			std::cerr << "Failed to add center calculation image: " << res_add.ErrorMessage << std::endl;
 	}

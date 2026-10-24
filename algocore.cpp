@@ -217,18 +217,22 @@ std::vector<float> get_intensity_distribution(const cv::Mat& image,int column_in
 	std::vector<float> intensities;
 	intensities.reserve(total_samples);
 
+	std::mt19937 generator(12345);
+	std::uniform_int_distribution<int> x_distribution(0,float_image.cols-1);
+	std::uniform_int_distribution<int> y_distribution(0,float_image.rows-1);
 	if(column_index==-1)
 		for(int k=0; k<total_samples; ++k)
 		{
-			int x=std::rand()%float_image.cols;
-			int y=std::rand()%float_image.rows;
+
+			int x=x_distribution(generator);
+			int y=y_distribution(generator);
 			float pixel=float_image.at<float>(y,x);
 			intensities.push_back(pixel);
 		}
 	else
 		for(int k=0; k<total_samples; ++k)
 		{
-			int y=std::rand()%float_image.rows;
+			int y=y_distribution(generator);
 			float pixel=float_image.at<float>(y,column_index);
 			intensities.push_back(pixel);
 		}
