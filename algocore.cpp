@@ -21,8 +21,19 @@ std::vector<double> estimate_column_intensity(cv::Mat image)
 		column_intensities[x]=avg_ptr[x];
 	return column_intensities;
 }
-template <typename T>
-void estimate_column_intensity_stat_impl(const cv::Mat& image, std::vector<double>& result) {
+std::vector<double> estimate_column_intensity_stat(const cv::Mat &image, float minvalid,float maxvalid)
+	//float minvalid=-std::numeric_limits<float>::infinity(), float maxvalid=std::numeric_limits<float>::infinity())
+{
+    if (image.empty())
+        throw std::invalid_argument("Input image is empty");
+	if(image.type()!=CV_8UC1&&image.type()!=CV_16UC1&&image.type()!=CV_32FC1)
+		throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
+    if (image.dims != 2 || image.rows <= 0 || image.cols <= 0)
+        throw std::invalid_argument("Input image must be a non-empty 2D image");
+
+    std::vector<double> result(image.cols, 0.0);
+	cv::Mat imgf; image.convertTo(imgf,CV_32F); 
+
     int W = image.cols;
     int H = image.rows;
     const int N = 10000;
@@ -38,23 +49,25 @@ void estimate_column_intensity_stat_impl(const cv::Mat& image, std::vector<doubl
     {
         //#pragma omp for schedule(dynamic)
 		//#pragma omp for
-		std::vector<T> samples(N);
-		std::mt19937 rng(base_seed); // Seed RNG deterministically per column
+		std::mt19937 rng(base_seed); 
 		std::uniform_int_distribution<int> dist(0, H - 1);
         for (int x = 0; x < W; ++x) 
-        {
-            
+        { 
+			std::vector<float> samples; 
+			samples.reserve(N);
             // 1. Sample N=10000 values randomly
-            for (int i = 0; i < N; ++i) {
+			while(samples.size()<N)
+			{
                 int y = dist(rng);
-                //samples[i] = image.ptr<T>(y)[x];
-                samples[i] = image.at<T>(y, x);
+                float s=imgf.at<float>(y, x);
+				//if(minvalid<=s&&s<=maxvalid)
+					samples.push_back(s);
             }
 
             // 2. Sort the values
             std::sort(samples.begin(), samples.end());
 
-            // 3. Calculate average of the middle 80%
+            // 3. Calculate average of the part indicated by start_idx and end_idx
             double sum = 0.0;
             for (int i = start_idx; i < end_idx; ++i) 
                 sum += samples[i];
@@ -62,29 +75,6 @@ void estimate_column_intensity_stat_impl(const cv::Mat& image, std::vector<doubl
             result[x] = sum / valid_samples;
         }
     }
-}
-
-// Main interface function. 
-std::vector<double> estimate_column_intensity_stat(const cv::Mat &image) 
-{
-    if (image.empty())
-        throw std::invalid_argument("Input image is empty");
-	if(image.type()!=CV_8UC1&&image.type()!=CV_16UC1&&image.type()!=CV_32FC1)
-		throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
-    if (image.dims != 2 || image.rows <= 0 || image.cols <= 0)
-        throw std::invalid_argument("Input image must be a non-empty 2D image");
-
-    std::vector<double> result(image.cols, 0.0);
-
-    // Dispatch to the correct template instantiation based on OpenCV type
-    if (image.type() == CV_8UC1)
-        estimate_column_intensity_stat_impl<uchar>(image, result);
-    else if (image.type() == CV_16UC1)
-        estimate_column_intensity_stat_impl<ushort>(image, result);
-	else if(image.type()==CV_32FC1)
-		estimate_column_intensity_stat_impl<float>(image,result);
-    else 
-        throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
 
     return result;
 }

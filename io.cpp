@@ -91,6 +91,10 @@ void release_all_mmap()
      }
      g_mmap_registry.clear();
 }
+#else
+bool save_to_mmap(const char* name,const void* data,size_t size){ return false; } 
+void load_from_mmap(const char* name,void** data,size_t* size){}
+void release_all_mmap() {}
 #endif
 
 std::map<std::string, std::vector<float>> readRingParaCSV(const std::string& filename) {

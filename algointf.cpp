@@ -733,7 +733,7 @@ extern "C"
 					//std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
 					//std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
 				//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, dehazing ring {}",static_cast<int>(channelID),kr).c_str());
-				cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("{}/radical_intensity{}.txt",dirout,kr):"");
+				cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("{}/intensity_radical{}.txt",dirout,kr):"");
 				double minval,maxval;
 				cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
 				//std::println("flattened range: min={}, max={}",minval,maxval); 
