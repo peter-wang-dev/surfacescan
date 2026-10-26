@@ -37,8 +37,8 @@ std::vector<double> estimate_column_intensity_stat(const cv::Mat &image, float m
     int W = image.cols;
     int H = image.rows;
     const int N = 10000;
-	//const int start_idx=0000,end_idx=2000;
-	const int start_idx=4500,end_idx=5500;
+	const int start_idx=0000,end_idx=1000;
+	//const int start_idx=4500,end_idx=5500;
 	//const int start_idx=000,end_idx=10000;
     const int valid_samples = end_idx - start_idx;
 
@@ -60,8 +60,10 @@ std::vector<double> estimate_column_intensity_stat(const cv::Mat &image, float m
 			{
                 int y = dist(rng);
                 float s=imgf.at<float>(y, x);
-				//if(minvalid<=s&&s<=maxvalid)
+				if(minvalid<=s&&s<=maxvalid)
 					samples.push_back(s);
+				//else
+				//	std::println("estimate_column_intensity_stat: Skipping invalid sample at (x={}, y={}): {}",x,y,s);
             }
 
             // 2. Sort the values
@@ -98,19 +100,13 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
 
     // Step 1: Calculate the average intensity of each column
 	//auto colavg=estimate_column_intensity(image);
-    try{
-		colavg=estimate_column_intensity_stat(image);
-	}
-	catch(const std::exception& e)
-	{
-		std::cerr<<"Error in estimate_column_intensity_stat: "<<e.what()<<std::endl;
-		throw std::runtime_error("Error in estimate_column_intensity_stat: "+std::string(e.what()));
-    }
+	//colavg=estimate_column_intensity_stat(image);
+	colavg=estimate_column_intensity_stat(image,-1e12,4000);
 	//if(colavg[1]>4096)
 	//	throw std::runtime_error("Input image is not 12-bit data in a 16-bit container. The average column intensity is greater than 4096, which is not expected for 12-bit data.");
     //correct colavg because the intensity are distributed on circles with radius from r_inner to r_outer
     std::vector<double> correction_factor;
-    const float pixelsize=4.832e-3f;//mm/pixel
+    //const float pixelsize=4.832e-3f;//mm/pixel
     //std::println("flatten: r_inner={}, r_outer={}",r_inner,r_outer);
     for(int x=0; x<W; ++x)
     { 
@@ -268,8 +264,8 @@ int ransac_fit_circle(const std::vector<cv::Point2d>& points,double& best_circle
 		// Count inliers
 		int inliers_count=0;
 		for(const auto& pt:points) {
-			double dist=std::sqrt((pt.x-cx)*(pt.x-cx)+(pt.y-cy)*(pt.y-cy));
-			if(std::abs(dist-r)<threshold) {
+			double d=std::sqrt((pt.x-cx)*(pt.x-cx)+(pt.y-cy)*(pt.y-cy));
+			if(std::abs(d-r)<threshold) {
 				++inliers_count;
 			}
 		}

@@ -14,9 +14,7 @@ std::vector <float> centerCalculationAngles,contourCalculationAngles;
 std::vector <cv::Point2d> CwaferEstimated;
 std::mutex mtx_chsettings;
 std::map<DetectChannel, std::map<std::string, json>> chsettings;
-//const double intensity_normalizer=100.0;
 bool DebugOutput=false;
-float pixelsize;
 bool flag_glass=false;//true: glass wafer, false: silicon wafer
 bool flag_tialsi=false;//true: TiAlSi coating, false: no coating
 struct Ring
@@ -76,7 +74,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	write_log(LogType::Info,"inspect",ss.str().c_str());
 
 	std::vector<DefectInfoStruct> defects;
-	const float intensity_threshold=(thr_snr-1.0f)*100;
+	const float intensity_threshold=(thr_snr-1.0f)*100;//the input image background as already been removed
 
 	// Binary mask
 	//cv::Mat binary=(image>=intensity);//&(image<intensity_next); // yields 8-bit mask (0 or 255) in OpenCV expression context on most builds
@@ -85,6 +83,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	if(binary.type()!=CV_8U)
 		binary.convertTo(binary,CV_8U,255);
 	cv::Mat closure;
+	//cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(3,3)));
 	cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(11,11)));
 	//cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(49,49)));
  
@@ -130,13 +129,10 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			for(int j=left; j<left+width; ++j)
 				if(labels.at<int>(i,j)==lbl)
 				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
-					intg+=image.at<float>(i,j);
+					intg+=image.at<float>(i,j)+100.0f;//add 100 to compensate for the background removal in the input image
+					//intg+=image.at<float>(i,j)-intensity_threshold;//only consider the intensity above the threshold
 		int center_x=static_cast<int>(centroids.at<double>(lbl,0));
 		int center_y=static_cast<int>(centroids.at<double>(lbl,1));
-		if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore a region for glass wafer
-		//if(flag_glass&&(!(center_x>10000&&center_x<31000&&center_y>22000)))//ignore a region for glass wafer
-			continue;
-		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
 
 		//ignore the superficial components that are not part of the binary mask
 		cv::Mat componentMask;
@@ -194,8 +190,12 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			maxArea=area;
 			maxLabel=lbl;
 		}
-		const float Rmax=image.cols/2*pixelsize*0.98f;
+		const float Rmax=image.cols/2*pixelsize*0.95f;
 		if(defect.CoordR>Rmax) continue;
+		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore the U-region
+		if(flag_glass&&(!(center_x>11000&&center_x<29000&&center_y>22000)))//onlly consider the U-region
+			continue;
+		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
 		if(intg<intensity_threshold)
 			continue; // skip defects less than threshold the intensity range
 		if(intg<Intensities[1])
@@ -575,7 +575,6 @@ extern "C"
 			flag_glass=chsettings[channelID]["ring"]["Material"]=="glass";
 			flag_tialsi=chsettings[channelID]["ring"]["Material"]=="tialsi";
 		}
-		pixelsize=chsettings[channelID]["classification"]["PixelSize"];
 		//std::println("setting pixelsize as {}",pixelsize);
 		return AlgoResult::Success();
 	}
@@ -695,14 +694,16 @@ extern "C"
 		} 
 		const int W=2*std::accumulate(ringWidths.begin(),ringWidths.end(),0);
 		const int H=W;
-		int N=rings_copy.size();
-		float thr_snr=1.8f;//default value, will be overwritten by settings
+		float pixelsize=0.0f;
+		int N=static_cast<int>(rings_copy.size());
+		float thr_snr=2.5f;//default value, will be overwritten by settings
 		try
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
 			dirout=chsettings[channelID]["ring"]["ImageSaveDirectory"];
 			N=chsettings[channelID]["ring"]["TotalRings"]; 
 			thr_snr=chsettings[channelID]["classification"]["SNRThreshold"];
+			pixelsize=chsettings[channelID]["classification"]["PixelSize"];
 			if(thr_snr>20.0f) thr_snr=20.0f; // clamp to a reasonable maximum
 			if(thr_snr<1.2f) thr_snr=1.2f; // clamp to a reasonable minimum
 			//pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
@@ -718,39 +719,29 @@ extern "C"
 			#pragma omp parallel for
 			for(int kr=0; kr<N; kr++)
 			{
-				//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, analyzing ring {}",static_cast<int>(channelID),kr).c_str());
+				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, analyzing ring {}",static_cast<int>(channelID),kr).c_str());
 				const cv::Mat &rimg=rings_copy[kr].img;
-				auto col_intensity=estimate_column_intensity_stat(rimg);
-				//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, column intensity estimated for ring {}",static_cast<int>(channelID),kr).c_str());
-				float r_inner_mm,r_outer_mm;
-					float w=static_cast<float>(rimg.cols);
-					int ninside=static_cast<int>(rings_copy.size())-kr-1;//number of ring inside of current rings
-					r_inner_mm=w*ninside*pixelsize/1000.0f;
-					r_outer_mm=w*(ninside+1)*pixelsize/1000.0f;
-					//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {}: r_inner_mm={}, r_outer_mm={}",static_cast<int>(channelID),kr,r_inner_mm,r_outer_mm).c_str());	
-					//r_inner_mm=r-pixelsize/1000.0f*W/2;
-					//r_outer_mm=r+pixelsize/1000.0f*W/2;
-					//std::println("flatten: r_inner={}, r_outer={}",r_inner_mm,r_outer_mm);
-					//std::println("flatten: radius={}",r_inner_mm,r_outer_mm);
-				//write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, dehazing ring {}",static_cast<int>(channelID),kr).c_str());
-				cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("{}/intensity_radical{}.txt",dirout,kr):"");
-				double minval,maxval;
-				cv::minMaxLoc(flattened,&minval,&maxval,nullptr,nullptr);
-				//std::println("flattened range: min={}, max={}",minval,maxval); 
-				cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
-				auto haze_col_intensity=estimate_column_intensity_stat(flattened);
-				for(int x=0; x<haze.cols; ++x)
-					haze.col(x)=haze_col_intensity[x]*1.0f;
-				cv::Mat dehazed=flattened-haze;//allow negative values to remain
-				if(flag_glass&&kr>=5) //ignore the central rings for glass wafer
-					dehazed=0;
-				if(flag_tialsi&&kr>=10) //ignore the central rings for glass wafer
+				if((flag_tialsi&&kr>=10) //
+					||(flag_glass&&kr>=8)) //
 				{
-					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {} is ignored for tialsi wafer",static_cast<int>(channelID),kr).c_str());
-					dehazed=0; 
+					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, skipped ring {}",static_cast<int>(channelID),kr).c_str());
+					rings_copy[kr].dehazed=cv::Mat(rimg.size(),CV_32F,cv::Scalar(0.0f));
+					continue;
 				}
-				rings_copy[kr].dehazed=dehazed;
-
+				float r_inner_mm,r_outer_mm;
+				float w=static_cast<float>(rimg.cols);
+				int ninside=static_cast<int>(rings_copy.size())-kr-1;//number of ring inside of current rings
+				r_inner_mm=w*ninside*pixelsize/1000.0f;
+				r_outer_mm=w*(ninside+1)*pixelsize/1000.0f;
+				cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("{}/intensity_radical{}.txt",dirout,kr):"");
+				cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
+				//auto haze_col_intensity=estimate_column_intensity_stat(flattened);
+				//for(int x=0; x<haze.cols; ++x)
+				//	haze.col(x)=haze_col_intensity[x]*1.0f;
+				cv::blur(flattened,haze,cv::Size(1,151),cv::Point(-1,-1),cv::BORDER_REFLECT);
+				//cv::Mat dehazed=flattened-haze;//allow negative values to remain
+				cv::Mat dehazed=cv::max(flattened-haze,0);//do not allow negative values to remain
+				rings_copy[kr].dehazed=dehazed; 
 				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {} ready for inspection",static_cast<int>(channelID),kr).c_str());
 			}
 		}
@@ -759,6 +750,7 @@ extern "C"
 			write_log(LogType::Error,"EndChannelProcess",std::format("channelID={}, exception during processing ring images: {}",static_cast<int>(channelID),e.what()).c_str());
 			return AlgoResult::Failure(e.what());
 		}
+		write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, all rings processed.",static_cast<int>(channelID)).c_str());
 
 
 		//FULL MAP CONSTRUCTION
