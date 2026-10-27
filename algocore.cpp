@@ -56,12 +56,22 @@ std::vector<double> estimate_column_intensity_stat(const cv::Mat &image, float m
 			std::vector<float> samples; 
 			samples.reserve(N);
             // 1. Sample N=10000 values randomly
+			int num_successful_samples=0, num_failed_samples=0;
 			while(samples.size()<N)
 			{
                 int y = dist(rng);
                 float s=imgf.at<float>(y, x);
 				if(minvalid<=s&&s<=maxvalid)
+				{
 					samples.push_back(s);
+					num_successful_samples++;
+				}
+				else
+				{
+					num_failed_samples++;
+				} 
+				if(num_failed_samples>10*static_cast<int>(N))
+					throw std::runtime_error(std::format("Column {}: Too many invalid samples (>{}) during sampling. minvalid={}, maxvalid={}. Check exposure settings.",x,10000,minvalid,maxvalid).c_str());
 				//else
 				//	std::println("estimate_column_intensity_stat: Skipping invalid sample at (x={}, y={}): {}",x,y,s);
             }

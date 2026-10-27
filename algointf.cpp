@@ -90,7 +90,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	// Connected components with stats
 	cv::Mat labels,stats,centroids;
 	int nLabels=cv::connectedComponentsWithStats(closure,labels,stats,centroids,8,CV_32S);
-	write_log(LogType::Info,"inspect",std::format("SNR threshold: {},  Found {} potential regions. Analyzing...",thr_snr,nLabels-1).c_str()	);
+	//write_log(LogType::Info,"inspect",std::format("SNR threshold: {},  Found {} potential regions. Analyzing...",thr_snr,nLabels-1).c_str()	);
 	if(nLabels<=1) // no foreground components found
 		return {};
 	auto f_size=[&Intensities,&DSizes](double intensity)->double //linear interpolation
@@ -115,6 +115,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	std::ofstream ofs_defectlog(directory+std::format("/channel{}_defectlog.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
 	ofs_defectlog<<"ID\tArea(pixels)\tintg\tX\tY"<<std::endl;
 
+	int analyzed_regions=0;
 	for(int lbl=1; lbl<nLabels; ++lbl)
 	{
 		float intg=0;
@@ -129,7 +130,9 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			for(int j=left; j<left+width; ++j)
 				if(labels.at<int>(i,j)==lbl)
 				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
+					//intg+=image.at<float>(i,j);
 					intg+=image.at<float>(i,j)+100.0f;//add 100 to compensate for the background removal in the input image
+					//intg+=(image.at<float>(i,j)+100.0f)/100.0f;
 					//intg+=image.at<float>(i,j)-intensity_threshold;//only consider the intensity above the threshold
 		int center_x=static_cast<int>(centroids.at<double>(lbl,0));
 		int center_y=static_cast<int>(centroids.at<double>(lbl,1));
@@ -190,11 +193,12 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			maxArea=area;
 			maxLabel=lbl;
 		}
-		const float Rmax=image.cols/2*pixelsize*0.95f;
+		const float Rmax=image.cols/2*pixelsize*0.96f;
 		if(defect.CoordR>Rmax) continue;
 		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore the U-region
-		if(flag_glass&&(!(center_x>11000&&center_x<29000&&center_y>22000)))//onlly consider the U-region
+		if(flag_glass&&(!(center_x>12000&&center_x<28000&&center_y>22000)))//onlly consider the U-region
 			continue;
+		analyzed_regions++;
 		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
 		if(intg<intensity_threshold)
 			continue; // skip defects less than threshold the intensity range
@@ -206,6 +210,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		defects.push_back(defect);
 		ofs_defectlog<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,defect.CoordX,defect.CoordY);
 	}
+	write_log(LogType::Info,"inspect",std::format("SNR threshold: {}.  Analyzed {} regions.",thr_snr,analyzed_regions).c_str()	);
 	std::sort(defects.begin(),defects.end(),[](const DefectInfoStruct& a,const DefectInfoStruct& b) { return a.Area>b.Area; }); // descending order
 	return defects;
 }
@@ -716,13 +721,13 @@ extern "C"
 		//PROCESS OF EACH RING 
 		try
 		{
-			#pragma omp parallel for
+			//#pragma omp parallel for
 			for(int kr=0; kr<N; kr++)
 			{
 				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, analyzing ring {}",static_cast<int>(channelID),kr).c_str());
 				const cv::Mat &rimg=rings_copy[kr].img;
-				if((flag_tialsi&&kr>=10) //
-					||(flag_glass&&kr>=8)) //
+				if((flag_tialsi&&kr>=10) ||(flag_glass&&kr>=8)) //
+				//if(flag_glass&&kr>=8)
 				{
 					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, skipped ring {}",static_cast<int>(channelID),kr).c_str());
 					rings_copy[kr].dehazed=cv::Mat(rimg.size(),CV_32F,cv::Scalar(0.0f));
