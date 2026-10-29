@@ -111,7 +111,7 @@ cv::Mat flatten(cv::Mat image,float r_inner, float r_outer,std::string debugfile
     // Step 1: Calculate the average intensity of each column
 	//auto colavg=estimate_column_intensity(image);
 	//colavg=estimate_column_intensity_stat(image);
-	colavg=estimate_column_intensity_stat(image,-1e12,4000);
+	colavg=estimate_column_intensity_stat(image,-1e12f,4000);
 	//if(colavg[1]>4096)
 	//	throw std::runtime_error("Input image is not 12-bit data in a 16-bit container. The average column intensity is greater than 4096, which is not expected for 12-bit data.");
     //correct colavg because the intensity are distributed on circles with radius from r_inner to r_outer

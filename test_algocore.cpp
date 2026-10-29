@@ -85,12 +85,7 @@ TEST(core, merge)
 int main(int argc, char **argv) 
 {
     std::filesystem::create_directories(path_output); // Create test output directory if it doesn't exist
-	//std::string resdir="C:/astri2/lasv/lasvrepo/res"; //default resource directory
-	//std::println("Using resource directory: {}",resdir);
-	//std::filesystem::current_path(resdir); // Set working directory
-	//std::filesystem::current_path(path_output);
-     //_putenv_s("OPENCV_IO_MAX_IMAGE_PIXELS", "5000000000");
-     SET_ENV("OPENCV_IO_MAX_IMAGE_PIXELS", "1099511627776");
+    SET_ENV("OPENCV_IO_MAX_IMAGE_PIXELS", "1099511627776");
     ::testing::InitGoogleTest(&argc, argv);
 	if(argc>1) 
 		path_userinput=argv[1];

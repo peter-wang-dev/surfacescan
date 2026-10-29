@@ -83,6 +83,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	if(binary.type()!=CV_8U)
 		binary.convertTo(binary,CV_8U,255);
 	cv::Mat closure;
+	//cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(1,1)));
 	//cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(3,3)));
 	cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(11,11)));
 	//cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(49,49)));
@@ -130,10 +131,11 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			for(int j=left; j<left+width; ++j)
 				if(labels.at<int>(i,j)==lbl)
 				//if (labels.at<int>(i, j) == lbl && binary.at<ushort>(i, j) != 0)
-					//intg+=image.at<float>(i,j);
-					intg+=image.at<float>(i,j)+100.0f;//add 100 to compensate for the background removal in the input image
+					intg+=image.at<float>(i,j);
+					//intg+=image.at<float>(i,j)+100.0f;//add 100 to compensate for the background removal in the input image
 					//intg+=(image.at<float>(i,j)+100.0f)/100.0f;
 					//intg+=image.at<float>(i,j)-intensity_threshold;//only consider the intensity above the threshold
+		//intg=std::log10(intg);//log10 of the integrated intensity
 		int center_x=static_cast<int>(centroids.at<double>(lbl,0));
 		int center_y=static_cast<int>(centroids.at<double>(lbl,1));
 
@@ -200,8 +202,8 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			continue;
 		analyzed_regions++;
 		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
-		if(intg<intensity_threshold)
-			continue; // skip defects less than threshold the intensity range
+		//if(intg<intensity_threshold)
+		//	continue; // skip defects less than threshold the intensity range
 		if(intg<Intensities[1])
 			continue; // skip defects less than threshold the intensity range 
 		//if(defect.CoordX>0||defect.CoordY>0) continue; // skip defects 
@@ -719,42 +721,50 @@ extern "C"
 		}
 
 		//PROCESS OF EACH RING 
-		try
+		std::vector<std::future<bool>> futures;
+		for(int kr=0; kr<N; kr++) //start one thread for each ring to process in parallel
 		{
-			//#pragma omp parallel for
-			for(int kr=0; kr<N; kr++)
+			futures.push_back(std::async(std::launch::async,[&,kr]()
 			{
-				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, analyzing ring {}",static_cast<int>(channelID),kr).c_str());
-				const cv::Mat &rimg=rings_copy[kr].img;
-				if((flag_tialsi&&kr>=10) ||(flag_glass&&kr>=8)) //
-				//if(flag_glass&&kr>=8)
-				{
-					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, skipped ring {}",static_cast<int>(channelID),kr).c_str());
-					rings_copy[kr].dehazed=cv::Mat(rimg.size(),CV_32F,cv::Scalar(0.0f));
-					continue;
+				try
+				{ 
+					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, analyzing ring {}",static_cast<int>(channelID),kr).c_str());
+					const cv::Mat& rimg=rings_copy[kr].img;
+					if((flag_tialsi&&kr>=10)||(flag_glass&&kr>=8)) //
+						//if(flag_glass&&kr>=8)
+					{
+						write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, skipped ring {}",static_cast<int>(channelID),kr).c_str());
+						rings_copy[kr].dehazed=cv::Mat(rimg.size(),CV_32F,cv::Scalar(0.0f));
+						return true;
+					}
+					float r_inner_mm,r_outer_mm;
+					float w=static_cast<float>(rimg.cols);
+					int ninside=static_cast<int>(rings_copy.size())-kr-1;//number of ring inside of current rings
+					r_inner_mm=w*ninside*pixelsize/1000.0f;
+					r_outer_mm=w*(ninside+1)*pixelsize/1000.0f;
+					cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("{}/intensity_radical{}.txt",dirout,kr):"");
+					cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
+					//auto haze_col_intensity=estimate_column_intensity_stat(flattened);
+					//for(int x=0; x<haze.cols; ++x)
+					//	haze.col(x)=haze_col_intensity[x]*1.0f;
+					cv::blur(flattened,haze,cv::Size(1,151),cv::Point(-1,-1),cv::BORDER_REFLECT);
+					//cv::Mat dehazed=flattened-haze;//allow negative values to remain
+					cv::Mat dehazed=cv::max(flattened-haze,0);//do not allow negative values to remain
+					rings_copy[kr].dehazed=dehazed;
+					write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {} ready for inspection",static_cast<int>(channelID),kr).c_str());
+					return true;
 				}
-				float r_inner_mm,r_outer_mm;
-				float w=static_cast<float>(rimg.cols);
-				int ninside=static_cast<int>(rings_copy.size())-kr-1;//number of ring inside of current rings
-				r_inner_mm=w*ninside*pixelsize/1000.0f;
-				r_outer_mm=w*(ninside+1)*pixelsize/1000.0f;
-				cv::Mat flattened=flatten(rimg,r_inner_mm,r_outer_mm,DebugOutput?std::format("{}/intensity_radical{}.txt",dirout,kr):"");
-				cv::Mat haze(flattened.size(),flattened.type(),cv::Scalar(1.0)); //haze: background comes frome scattering of laser by the roughness of the wafer surface
-				//auto haze_col_intensity=estimate_column_intensity_stat(flattened);
-				//for(int x=0; x<haze.cols; ++x)
-				//	haze.col(x)=haze_col_intensity[x]*1.0f;
-				cv::blur(flattened,haze,cv::Size(1,151),cv::Point(-1,-1),cv::BORDER_REFLECT);
-				//cv::Mat dehazed=flattened-haze;//allow negative values to remain
-				cv::Mat dehazed=cv::max(flattened-haze,0);//do not allow negative values to remain
-				rings_copy[kr].dehazed=dehazed; 
-				write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, ring {} ready for inspection",static_cast<int>(channelID),kr).c_str());
-			}
+				catch(const std::exception& e)
+				{
+					write_log(LogType::Error,"EndChannelProcess",std::format("channelID={}, exception during processing ring {}: {}",static_cast<int>(channelID),kr,e.what()).c_str());
+					return false;
+				}
+			}));
 		}
-		catch(const std::exception& e)
-		{
-			write_log(LogType::Error,"EndChannelProcess",std::format("channelID={}, exception during processing ring images: {}",static_cast<int>(channelID),e.what()).c_str());
-			return AlgoResult::Failure(e.what());
-		}
+		for(int kr=0; kr<N; kr++) 
+			if(futures[kr].get()==false)
+				return AlgoResult::Failure(std::format("channelID={}, ring {} processing failed",static_cast<int>(channelID),kr).c_str());
+
 		write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, all rings processed.",static_cast<int>(channelID)).c_str());
 
 
