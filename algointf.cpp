@@ -83,10 +83,8 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	if(binary.type()!=CV_8U)
 		binary.convertTo(binary,CV_8U,255);
 	cv::Mat closure;
-	//cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(1,1)));
-	//cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(3,3)));
-	cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(11,11)));
-	//cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(49,49)));
+	const int morph_size=11;//odd, usually from 3 to 49
+	cv::morphologyEx(binary,closure,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_ELLIPSE,cv::Size(morph_size,morph_size)));
  
 	// Connected components with stats
 	cv::Mat labels,stats,centroids;
@@ -112,9 +110,9 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	int maxLabel=1;
 	int maxArea=stats.at<int>(1,cv::CC_STAT_AREA);
 	std::ofstream ofs_detreg(directory+std::format("/channel{}_detected_regions.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
-	ofs_detreg<<"ID\tArea(pixels)\tintg\tX\tY"<<std::endl;
+	ofs_detreg<<"ID\tArea(pixels)\tlg(intg)\tX\tY"<<std::endl;
 	std::ofstream ofs_defectlog(directory+std::format("/channel{}_defectlog.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
-	ofs_defectlog<<"ID\tArea(pixels)\tintg\tX\tY"<<std::endl;
+	ofs_defectlog<<"ID\tArea(pixels)\tlg(intg)\tX\tY"<<std::endl;
 
 	int analyzed_regions=0;
 	for(int lbl=1; lbl<nLabels; ++lbl)
@@ -135,7 +133,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 					//intg+=image.at<float>(i,j)+100.0f;//add 100 to compensate for the background removal in the input image
 					//intg+=(image.at<float>(i,j)+100.0f)/100.0f;
 					//intg+=image.at<float>(i,j)-intensity_threshold;//only consider the intensity above the threshold
-		//intg=std::log10(intg);//log10 of the integrated intensity
+		intg=std::log10(intg);//log10 of the integrated intensity
 		int center_x=static_cast<int>(centroids.at<double>(lbl,0));
 		int center_y=static_cast<int>(centroids.at<double>(lbl,1));
 
@@ -203,6 +201,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		analyzed_regions++;
 		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
 		//if(intg<intensity_threshold)
+		//if(intg<std::log10(intensity_threshold))
 		//	continue; // skip defects less than threshold the intensity range
 		if(intg<Intensities[1])
 			continue; // skip defects less than threshold the intensity range 

@@ -67,9 +67,7 @@ std::vector<double> estimate_column_intensity_stat(const cv::Mat &image, float m
 					num_successful_samples++;
 				}
 				else
-				{
 					num_failed_samples++;
-				} 
 				if(num_failed_samples>10*static_cast<int>(N))
 					throw std::runtime_error(std::format("Column {}: Too many invalid samples (>{}) during sampling. minvalid={}, maxvalid={}. Check exposure settings.",x,10000,minvalid,maxvalid).c_str());
 				//else
