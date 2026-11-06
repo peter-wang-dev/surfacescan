@@ -291,6 +291,7 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 ///     "ImageSaveDirectory": string,
 ///     "DebugOutput": bool,             //bool: whether to save intermediate results for debugging
 ///     "Material": string             // string: Wafer material, "silicon" or "glass" or "tialsi"
+///     "ROI":{"Rmin":float,"Rmax":float,"Tmin":float,"Tmax":float} // optional, region of interest in polar coordinates (mm, degrees)
 /// }
 /// cluster: {
 ///     "WaferRadius": float,            // 晶圆半径mm

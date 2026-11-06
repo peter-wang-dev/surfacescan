@@ -216,17 +216,25 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	std::sort(defects.begin(),defects.end(),[](const DefectInfoStruct& a,const DefectInfoStruct& b) { return a.Area>b.Area; }); // descending order
 	return defects;
 }
-cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const float pixelsize)
+cv::Mat drawmap(const cv::Mat &image,const std::vector<DefectInfoStruct> &defects,const float pixelsize, bool vflip=false)
 {
 	write_log(LogType::Info,"drawmap","Drawing defect annotations");
 	cv::Mat defect_annotation;
-	cv::cvtColor(image,defect_annotation,cv::COLOR_GRAY2BGR);
+	if(vflip)
+	{
+		cv::Mat flipped;
+		cv::flip(image,flipped,0);
+		cv::cvtColor(flipped,defect_annotation,cv::COLOR_GRAY2BGR);
+	}
+	else
+		cv::cvtColor(image,defect_annotation,cv::COLOR_GRAY2BGR);
 	//int numdraw=0;
 	write_log(LogType::Info,"drawmap",std::format("Total defects {}",defects.size()).c_str());
 	//std::ofstream defect_log("defect_log.txt");
-	for(const auto& defect:defects)
+	for(DefectInfoStruct defect:defects)
 	{
-		//if(numdraw++>500) break; // limit to the first few defects for drawing
+		if(vflip)
+			defect.CoordY=-defect.CoordY;
 		if(defect.Area<=0) continue; // skip invalid entries
 		cv::Point center(static_cast<int>(defect.CoordX/pixelsize+image.cols/2),static_cast<int>(defect.CoordY/pixelsize+image.rows/2));
 		cv::Size axes(static_cast<int>(defect.XSize/2/pixelsize)+20,static_cast<int>(defect.YSize/2/pixelsize)+20);
@@ -909,24 +917,24 @@ extern "C"
 				//imwrite_as16bit(dirout+std::format("/ch{}_dehazed_8ev.png",static_cast<int>(channelID)),dehazed*256);
 				cv::Mat dehazed_16UC1; 
 				dehazed.convertTo(dehazed_16UC1,CV_16UC1); 
-				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize);
+				cv::Mat dehazed_annotation=drawmap(dehazed_16UC1,defects,pixelsize,true);
 				//cv::imwrite(dirout+std::format("/ch{}_dehazed_annotated.png",static_cast<int>(channelID)),dehazed_annotation,outputparams);
 				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
-				imwrite_vflipped(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256);
-				imwrite_vflipped(dirout+std::format("/ch{}_dehazed_enhanced.png",static_cast<int>(channelID)),dehazed_16UC1*256);
+				imwrite(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256);
+				imwrite(dirout+std::format("/ch{}_dehazed_enhanced.png",static_cast<int>(channelID)),dehazed_16UC1*256);
 				//dehazed_annotation*=256;
 				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated_enhanced.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				dehazed.release();
-				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize);
+				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize,true);
 				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
 				//cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
-				imwrite_vflipped(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
+				imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
 				//saveBigTiff(dirout+std::format("/ch{}_annotated.tiff",static_cast<int>(channelID)),defect_annotation);
 				//defect_annotation*=16;
 				//saveBigTiff(dirout+std::format("/ch{}_annotated_4ev.tiff",static_cast<int>(channelID)),defect_annotation);
-				imwrite_vflipped(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
+				imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");

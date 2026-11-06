@@ -43,8 +43,9 @@ TEST(core,flatten)
 //}
 TEST(core, merge)
 {
-     SET_ENV("OPENCV_IO_MAX_IMAGE_PIXELS", "1099511627776");
-    const std::filesystem::path datadir = path_input + "/merge2deg";
+    SET_ENV("OPENCV_IO_MAX_IMAGE_PIXELS", "1099511627776");
+    const std::filesystem::path datadir = path_input + "/merge1deg";
+	std::println("Merging images from directory: {}",datadir.string());
     std::vector<cv::Mat> fullmaps;
 
     ASSERT_TRUE(std::filesystem::exists(datadir)) << "Input directory does not exist: " << datadir;
@@ -53,10 +54,11 @@ TEST(core, merge)
     {
         if (!entry.is_regular_file())
             continue; 
-        std::string extension = entry.path().extension().string();
+        std::string extension = entry.path().extension().string(); 
         std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); }); 
         if (extension != ".tif" && extension != ".tiff" &&extension!=".png")
             continue;
+		std::println("Found image file: {}",entry.path().string());
 
         cv::Mat image = cv::imread(entry.path().string(), cv::IMREAD_UNCHANGED);
         ASSERT_FALSE(image.empty()) << "Failed to load image: " << entry.path(); 
@@ -64,6 +66,7 @@ TEST(core, merge)
     }
 
     ASSERT_FALSE(fullmaps.empty()) << "No TIFF or PNG images found in: " << datadir; 
+	ASSERT_TRUE(fullmaps.size()>1)<<"At least two images are required for merging.";   
     cv::Mat merged=fullmaps[0]*0;
     for (const cv::Mat& image : fullmaps)
     {
