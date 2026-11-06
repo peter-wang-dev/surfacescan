@@ -179,8 +179,9 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		//	defect.DSize=std::max(width,height)*pixelsize;
 		defect.DSize=static_cast<float>(f_size(intg));
 		defect.MaxDSize=static_cast<float>(f_size(intg));
-		defect.SNR=intg;//todo
+		defect.SNR=1;//todo
 		defect.SumSNR=1;//todo
+		defect.Intensity=intg;
 		defect.SpaceResolution=1.0f;//todo
 		defect.RawPixelsOffset=0;
 		defect.RawPixelsCount=area;
@@ -243,7 +244,7 @@ cv::Mat drawmap(cv::Mat image,const std::vector<DefectInfoStruct> &defects,const
 		// prepare text strings
 		//std::string text=std::format("Area: {}, BinCode: {}",static_cast<int>(defect.Area+0.5),defect.BinCode);
 		//std::string text=std::format("{}",defect.RawPixelsCount);
-		std::string text=std::format("I={}",defect.SNR);
+		std::string text=std::format("I={}",defect.Intensity);
 
 		int fontFace = cv::FONT_HERSHEY_SIMPLEX;
 		double fontScale = 4;

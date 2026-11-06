@@ -201,6 +201,7 @@ struct DefectInfoStruct
     float MaxDSize;                    // 缺陷DSize最大值
     float SNR;                         // 信噪比
     float SumSNR;                      // SNR和值
+    float Intensity;                   // intensity
 
     // ── 标定 ──
     float PixelSize;                   // 像素尺寸（um/pixel）
