@@ -52,7 +52,9 @@ void imgprobe(cv::Mat img, bool continue_flag=false)
 		throw std::runtime_error("Intentional exception for image probing");
 }
 
-std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,const float pixelsize,float thr_snr,DetectChannel channel,std::string directory="")
+std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,
+	const float pixelsize,const float Rmin,const float Rmax,const float Tmin, const float Tmax,
+	const float thr_snr,DetectChannel channel,std::string directory="")
 {
 	//CV_Assert(image.type() == CV_16UC1);
 	CV_Assert(image.type() == CV_32F);
@@ -172,6 +174,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		defect.CoordY=static_cast<float>((cy-image.rows/2)*pixelsize);
 		defect.CoordR=static_cast<float>(std::sqrt(defect.CoordX*defect.CoordX+defect.CoordY*defect.CoordY));
 		defect.CoordT=static_cast<float>(std::atan2(defect.CoordY,defect.CoordX)*180.0f/3.14159265f); // in degrees
+		if(defect.CoordT<0) defect.CoordT+=360.0f;
 		defect.XSize=static_cast<float>(width)*pixelsize;
 		defect.YSize=static_cast<float>(height)*pixelsize;
 		defect.Area=pixelsize*pixelsize*area;
@@ -194,10 +197,10 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			maxArea=area;
 			maxLabel=lbl;
 		}
-		const float Rmax=image.cols/2*pixelsize*0.96f;
-		if(defect.CoordR>Rmax) continue;
 		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore the U-region
-		if(flag_glass&&(!(center_x>12000&&center_x<28000&&center_y>22000)))//onlly consider the U-region
+		if(flag_glass&&(!(center_x>12000&&center_x<28000&&center_y>22000)))//only consider the U-region
+			continue;
+		if(defect.CoordR<Rmin*1000.0f||defect.CoordR>Rmax*1000.0f||defect.CoordT<Tmin||defect.CoordT>Tmax) //continue if not within ROI
 			continue;
 		analyzed_regions++;
 		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
@@ -712,6 +715,7 @@ extern "C"
 		float pixelsize=0.0f;
 		int N=static_cast<int>(rings_copy.size());
 		float thr_snr=2.5f;//default value, will be overwritten by settings
+		float Rmin=-1000.0f,Rmax=1000.0f,Tmin=-720.0f,Tmax=720.0f;
 		try
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
@@ -722,6 +726,10 @@ extern "C"
 			if(thr_snr>20.0f) thr_snr=20.0f; // clamp to a reasonable maximum
 			if(thr_snr<1.2f) thr_snr=1.2f; // clamp to a reasonable minimum
 			//pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
+			Rmin=chsettings[channelID]["ring"]["ROI"]["Rmin"];
+			Rmax=chsettings[channelID]["ring"]["ROI"]["Rmax"];
+			Tmin=chsettings[channelID]["ring"]["ROI"]["Tmin"];
+			Tmax=chsettings[channelID]["ring"]["ROI"]["Tmax"];
 		}
 		catch(const std::exception& e)
 		{
@@ -873,7 +881,8 @@ extern "C"
 		//OUTPUT
 
 		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
-		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,thr_snr,channelID,dirout);
+		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,thr_snr,channelID,dirout);
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,Rmin,Rmax,Tmin,Tmax,thr_snr,channelID,dirout);
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 		//return AlgoResult::Success();
 

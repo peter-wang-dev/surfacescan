@@ -283,7 +283,7 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 
 /// <summary>
 /// 开始处理一个检测通道。
-/// ring: {
+/// channelSettings: {
 ///     "FrameWidth": int,              //  单帧宽度（像素）
 ///     "FrameHeight": int,              //  单帧高度（像素）
 ///     "TotalRings": int,                // 总圈数
@@ -291,7 +291,7 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 ///     "ImageSaveDirectory": string,
 ///     "DebugOutput": bool,             //bool: whether to save intermediate results for debugging
 ///     "Material": string             // string: Wafer material, "silicon" or "glass" or "tialsi"
-///     "ROI":{"Rmin":float,"Rmax":float,"Tmin":float,"Tmax":float} // optional, region of interest in polar coordinates (mm, degrees)
+///     "ROI":{"Rmin":float,"Rmax":float,"Tmin":float,"Tmax":float} //  region of interest in polar coordinates (mm, degrees in [0,360])
 /// }
 /// cluster: {
 ///     "WaferRadius": float,            // 晶圆半径mm
@@ -325,7 +325,7 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 /// }
 /// </summary>
 ALGO_API AlgoResult BeginChannelProcess(DetectChannel channelID,
-    const char* ring, const char* cluster, const char* classification,
+    const char* channelSettings, const char* cluster, const char* classification,
     const char* coordCaliSetting, const char* DSizeCurve);
 
 /// <summary>

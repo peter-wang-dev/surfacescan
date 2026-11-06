@@ -108,7 +108,7 @@ int main(int argc,char* argv[])
 		std::string pathout=arguments["pathout"].as<std::string>();
 		if(pathout!=""&&!std::filesystem::exists(pathout))
 			std::filesystem::create_directories(pathout);
-		std::string ringsettings=std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},  "ImageSaveDirectory":"{}", "DebugOutput":true, "Material":"{}"}})",
+		std::string ringsettings=std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},"ROI":{{"Rmin":0,"Rmax":95,"Tmin":0.0,"Tmax":360.0}},  "ImageSaveDirectory":"{}", "DebugOutput":true, "Material":"{}"}})",
 			FrameWidth,FrameHeight,TotalRings,pathout,material);
 		//std::string DSizeCurveStr=std::format(R"({{"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": {}, "DSize": 200.0}, {"Intensity": 255.0, "DSize": 1000.0}]}})", detection_threshold); 
 		float thr_intg=arguments["thr_intg"].as<float>();
