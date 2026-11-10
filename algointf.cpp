@@ -53,7 +53,7 @@ void imgprobe(cv::Mat img, bool continue_flag=false)
 }
 
 std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,
-	const float pixelsize,const float Rmin,const float Rmax,const float Tmin, const float Tmax,
+	const float pixelsize,const Regions roe,
 	const float thr_snr,DetectChannel channel,std::string directory="")
 {
 	//CV_Assert(image.type() == CV_16UC1);
@@ -112,7 +112,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	int maxLabel=1;
 	int maxArea=stats.at<int>(1,cv::CC_STAT_AREA);
 	std::ofstream ofs_detreg(directory+std::format("/channel{}_detected_regions.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
-	ofs_detreg<<"ID\tArea(pixels)\tlg(intg)\tX\tY"<<std::endl;
+	ofs_detreg<<"ID\tArea(pixels)\tlg(intg)\tX\tY\tWidth\tHeight\tAspectRatio\tD2"<<std::endl;// the value D2 measures how far the region is from a perfect disk. D2:=4*pi*Area/(Perimeter^2), D2=1 for a perfect disk, D2<1 for other shapes
 	std::ofstream ofs_defectlog(directory+std::format("/channel{}_defectlog.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
 	ofs_defectlog<<"ID\tArea(pixels)\tlg(intg)\tX\tY"<<std::endl;
 
@@ -120,7 +120,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	for(int lbl=1; lbl<nLabels; ++lbl)
 	{
 		float intg=0;
-		int area=stats.at<int>(lbl,cv::CC_STAT_AREA);
+		int area_px=stats.at<int>(lbl,cv::CC_STAT_AREA);
 		// Extract bounding box and centroid for the selected component
 		int left=stats.at<int>(lbl,cv::CC_STAT_LEFT);
 		int top=stats.at<int>(lbl,cv::CC_STAT_TOP);
@@ -177,7 +177,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		if(defect.CoordT<0) defect.CoordT+=360.0f;
 		defect.XSize=static_cast<float>(width)*pixelsize;
 		defect.YSize=static_cast<float>(height)*pixelsize;
-		defect.Area=pixelsize*pixelsize*area;
+		defect.Area=pixelsize*pixelsize*area_px;
 		//if(area>10)
 		//	defect.DSize=std::max(width,height)*pixelsize;
 		defect.DSize=static_cast<float>(f_size(intg));
@@ -187,23 +187,52 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		defect.Intensity=intg;
 		defect.SpaceResolution=1.0f;//todo
 		defect.RawPixelsOffset=0;
-		defect.RawPixelsCount=area;
+		defect.RawPixelsCount=area_px;
 		defect.OutlinePointsOffset=0;
 		defect.OutlinePointsCount=0;
 		defect.BinCode=0;
 
-		if(area>maxArea)
+		if(area_px>maxArea)
 		{
-			maxArea=area;
+			maxArea=area_px;
 			maxLabel=lbl;
 		}
 		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore the U-region
-		if(flag_glass&&(!(center_x>12000&&center_x<28000&&center_y>22000)))//only consider the U-region
+		if(flag_glass&&(!(center_x>12000&&center_x<28000&&center_y>22000)))//only consider the U-region for glass wafers
 			continue;
-		if(defect.CoordR<Rmin*1000.0f||defect.CoordR>Rmax*1000.0f||defect.CoordT<Tmin||defect.CoordT>Tmax) //continue if not within ROI
+		bool in_ROE=false;
+		for(auto& rect:roe.Rectangles)
+		{
+			if(defect.CoordX>=rect.Xmin*1000&&defect.CoordX<=rect.Xmax*1000&&defect.CoordY>=rect.Ymin*1000&&defect.CoordY<=rect.Ymax*1000)
+			{
+				in_ROE=true;
+				break;
+			}
+		}
+		for(auto& ring:roe.Rings)
+		{
+			if(defect.CoordR>=ring.Rmin*1000&&defect.CoordR<=ring.Rmax*1000&&defect.CoordT>=ring.Tmin&&defect.CoordT<=ring.Tmax)
+			{
+				in_ROE=true;
+				break;
+			}
+		}
+		if(in_ROE) //skip current defect if within ROE 
 			continue;
 		analyzed_regions++;
-		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,left,top);
+		auto  aspectRatio=static_cast<double>(width)/static_cast<double>(height);
+				std::vector<std::vector<cv::Point>> contours;
+		cv::findContours(componentMask,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE);
+
+		double perimeter_px=0.0;
+		for(const auto& contour:contours)
+			perimeter_px+=cv::arcLength(contour,true);
+
+		const double D2=perimeter_px>0.0
+			? 4.0*CV_PI*static_cast<double>(area_px)/(perimeter_px*perimeter_px)
+			: std::numeric_limits<double>::quiet_NaN();
+		defect.D2=static_cast<float>(D2);
+		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",lbl,area_px,intg,left,top,width,height,aspectRatio,D2);
 		//if(intg<intensity_threshold)
 		//if(intg<std::log10(intensity_threshold))
 		//	continue; // skip defects less than threshold the intensity range
@@ -213,7 +242,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			//std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
 		//finally, add the defect to the list
 		defects.push_back(defect);
-		ofs_defectlog<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area,intg,defect.CoordX,defect.CoordY);
+		ofs_defectlog<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area_px,intg,defect.CoordX,defect.CoordY);
 	}
 	write_log(LogType::Info,"inspect",std::format("SNR threshold: {}.  Analyzed {} regions.",thr_snr,analyzed_regions).c_str()	);
 	std::sort(defects.begin(),defects.end(),[](const DefectInfoStruct& a,const DefectInfoStruct& b) { return a.Area>b.Area; }); // descending order
@@ -574,24 +603,24 @@ extern "C"
 	}
  
 	ALGO_API AlgoResult BeginChannelProcess(DetectChannel channelID,
-		const char* ring,const char* cluster,const char* classification,
+		const char* channelSettings,const char* cluster,const char* classification,
 		const char* coordCaliSetting,const char* DSizeCurve)
 	{
 		(void)cluster, (void)coordCaliSetting; 
 		std::lock_guard<std::mutex> lock(mtx_chsettings);
-		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, ring={}",static_cast<int>(channelID),ring).c_str());
-		chsettings[channelID]["ring"]=json::parse(ring); 
+		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, channelSettings={}",static_cast<int>(channelID),channelSettings).c_str());
+		chsettings[channelID]["channelSettings"]=json::parse(channelSettings); 
 		write_log(LogType::Info,"BeginChannelProcess",std::format("channelID={}, classifcation={}",static_cast<int>(channelID),classification).c_str());
 		chsettings[channelID]["classification"]=json::parse(classification); 
 		chsettings[channelID]["DSizeCurve"]=json::parse(DSizeCurve); 
 		std::lock_guard<std::mutex> lock_imgs(mtx_rings); 
-		rings[channelID]=std::vector<Ring>(chsettings[channelID]["ring"]["TotalRings"]);
-		if(chsettings[channelID]["ring"].find("DebugOutput")!=chsettings[channelID]["ring"].end())
-			DebugOutput=chsettings[channelID]["ring"]["DebugOutput"];
-		if(chsettings[channelID]["ring"].find("Material")!=chsettings[channelID]["ring"].end())
+		rings[channelID]=std::vector<Ring>(chsettings[channelID]["channelSettings"]["TotalRings"]);
+		if(chsettings[channelID]["channelSettings"].find("DebugOutput")!=chsettings[channelID]["channelSettings"].end())
+			DebugOutput=chsettings[channelID]["channelSettings"]["DebugOutput"];
+		if(chsettings[channelID]["channelSettings"].find("Material")!=chsettings[channelID]["channelSettings"].end())
 		{
-			flag_glass=chsettings[channelID]["ring"]["Material"]=="glass";
-			flag_tialsi=chsettings[channelID]["ring"]["Material"]=="tialsi";
+			flag_glass=chsettings[channelID]["channelSettings"]["Material"]=="glass";
+			flag_tialsi=chsettings[channelID]["channelSettings"]["Material"]=="tialsi";
 		}
 		//std::println("setting pixelsize as {}",pixelsize);
 		return AlgoResult::Success();
@@ -664,7 +693,7 @@ extern "C"
 		if(DebugOutput) //sample the data and write to a text file for debugging purposes
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
-			std::string dirout=chsettings[channelID]["ring"]["ImageSaveDirectory"];
+			std::string dirout=chsettings[channelID]["channelSettings"]["ImageSaveDirectory"];
 			std::string fn=std::format("{}/intensity_tangential_{}.txt",dirout,ringIndex);
 			std::ofstream ofs(fn);
 			ofs<<"SampleID\tIntensity\n";
@@ -715,21 +744,44 @@ extern "C"
 		float pixelsize=0.0f;
 		int N=static_cast<int>(rings_copy.size());
 		float thr_snr=2.5f;//default value, will be overwritten by settings
-		float Rmin=-1000.0f,Rmax=1000.0f,Tmin=-720.0f,Tmax=720.0f;
+		//float Rmin=-1000.0f,Rmax=1000.0f,Tmin=-720.0f,Tmax=720.0f;
+		Regions roe;//regions of exclusion, will be filled by settings
 		try
 		{
 			std::lock_guard<std::mutex> lock_settings(mtx_chsettings);
-			dirout=chsettings[channelID]["ring"]["ImageSaveDirectory"];
-			N=chsettings[channelID]["ring"]["TotalRings"]; 
+			write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, extracting settings",static_cast<int>(channelID)).c_str());
+			write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, channelSettings={}",static_cast<int>(channelID),chsettings[channelID]["channelSettings"].dump()).c_str());
+			dirout=chsettings[channelID]["channelSettings"]["ImageSaveDirectory"];
+			N=chsettings[channelID]["channelSettings"]["TotalRings"]; 
 			thr_snr=chsettings[channelID]["classification"]["SNRThreshold"];
 			pixelsize=chsettings[channelID]["classification"]["PixelSize"];
 			if(thr_snr>20.0f) thr_snr=20.0f; // clamp to a reasonable maximum
 			if(thr_snr<1.2f) thr_snr=1.2f; // clamp to a reasonable minimum
-			//pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
-			Rmin=chsettings[channelID]["ring"]["ROI"]["Rmin"];
-			Rmax=chsettings[channelID]["ring"]["ROI"]["Rmax"];
-			Tmin=chsettings[channelID]["ring"]["ROI"]["Tmin"];
-			Tmax=chsettings[channelID]["ring"]["ROI"]["Tmax"];
+			//fill the regions of exclusion from the settings
+			pixelsize=chsettings[channelID]["classification"]["PixelSize"]; 
+			const auto& channelSettings=chsettings[channelID]["channelSettings"];
+			if(channelSettings.contains("ROE")&&!channelSettings.at("ROE").is_null())
+			{
+				auto& roejs=channelSettings["ROE"];
+				if(roejs.contains("Rings")&&roejs["Rings"].is_array())
+					for(auto& rjs:roejs["Rings"])
+					{
+						Regions::Ring r{ .Rmin=float(rjs["Rmin"]), .Rmax=float(rjs["Rmax"]), .Tmin=float(rjs["Tmin"]), .Tmax=float(rjs["Tmax"]) };
+						roe.Rings.push_back(r);	
+						write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, added ROE Ring: Rmin={}, Rmax={}, Tmin={}, Tmax={}",static_cast<int>(channelID),r.Rmin,r.Rmax,r.Tmin,r.Tmax).c_str());
+					}
+				if(roejs.contains("Rectangles")&&roejs["Rectangles"].is_array())
+					for(auto& rjs:roejs["Rectangles"])
+					{
+						Regions::Rectangle r{ .Xmin=float(rjs["Xmin"]), .Xmax=float(rjs["Xmax"]), .Ymin=float(rjs["Ymin"]), .Ymax=float(rjs["Ymax"]) };
+						roe.Rectangles.push_back(r);	
+						write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, added ROE Rectangle: Xmin={}, Xmax={}, Ymin={}, Ymax={}",static_cast<int>(channelID),r.Xmin,r.Xmax,r.Ymin,r.Ymax).c_str());
+					}
+			}
+			//Rmin=chsettings[channelID]["channelSettings"]["ROI"]["Rmin"];
+			//Rmax=chsettings[channelID]["channelSettings"]["ROI"]["Rmax"];
+			//Tmin=chsettings[channelID]["channelSettings"]["ROI"]["Tmin"];
+			//Tmax=chsettings[channelID]["channelSettings"]["ROI"]["Tmax"];
 		}
 		catch(const std::exception& e)
 		{
@@ -882,7 +934,7 @@ extern "C"
 
 		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
 		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,thr_snr,channelID,dirout);
-		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,Rmin,Rmax,Tmin,Tmax,thr_snr,channelID,dirout);
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,roe,thr_snr,channelID,dirout);
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 		//return AlgoResult::Success();
 
@@ -931,7 +983,7 @@ extern "C"
 				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				write_log(LogType::Info,"EndChannelProcess","Saving dehazed image");
 				imwrite(dirout+std::format("/ch{}_dehazed_annotated_enhanced.png",static_cast<int>(channelID)),dehazed_annotation*256);
-				imwrite(dirout+std::format("/ch{}_dehazed_enhanced.png",static_cast<int>(channelID)),dehazed_16UC1*256);
+				imwrite_vflipped(dirout+std::format("/ch{}_dehazed_enhanced.png",static_cast<int>(channelID)),dehazed_16UC1*256);
 				//dehazed_annotation*=256;
 				//saveBigTiff(dirout+std::format("/ch{}_dehazed_annotated_enhanced.tiff",static_cast<int>(channelID)),dehazed_annotation);
 				dehazed.release();

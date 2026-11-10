@@ -108,7 +108,7 @@ int main(int argc,char* argv[])
 		std::string pathout=arguments["pathout"].as<std::string>();
 		if(pathout!=""&&!std::filesystem::exists(pathout))
 			std::filesystem::create_directories(pathout);
-		std::string ringsettings=std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},"ROI":{{"Rmin":0,"Rmax":95,"Tmin":0.0,"Tmax":360.0}},  "ImageSaveDirectory":"{}", "DebugOutput":true, "Material":"{}"}})",
+		std::string channelSettings=std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},"ROE":{{"Rings":[{{"Rmin":0,"Rmax":0,"Tmin":0.0,"Tmax":360.0}}]}},  "ImageSaveDirectory":"{}", "DebugOutput":true, "Material":"{}"}})",
 			FrameWidth,FrameHeight,TotalRings,pathout,material);
 		//std::string DSizeCurveStr=std::format(R"({{"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": {}, "DSize": 200.0}, {"Intensity": 255.0, "DSize": 1000.0}]}})", detection_threshold); 
 		float thr_intg=arguments["thr_intg"].as<float>();
@@ -118,7 +118,7 @@ int main(int argc,char* argv[])
 			thr_intg);
 		float thr_snr=arguments["thr_snr"].as<float>();
 		std::string classifySettingStr=std::format(R"({{"PixelSize": {},"SNRThreshold":{}}})",pixelsize,thr_snr);
-		auto res_beginchannel=BeginChannelProcess(channel,ringsettings.c_str(),
+		auto res_beginchannel=BeginChannelProcess(channel,channelSettings.c_str(),
 			"cluster_setting.json",classifySettingStr.c_str(),
 			"coord_cali_setting.json",DSizeCurveStr.c_str());
 		if(!res_beginchannel.IsSuccess)

@@ -1,9 +1,9 @@
-// Algorithm.h
+﻿// Algorithm.h
 // C++ 端算法接口结构与调用协议，与 C# IAlgorithmInterface2 对应
 //
 // 本文件应被 LibParticleSystem.dll 工程引用，确保 C++ 内部返回的 AlgoResult
 // 与 C# 侧 [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi)]
-// 布局完全一致。（Struct 大小: 260 bytes）
+// 布局完全一致。（Struct 大小: 257 bytes）
 
 #ifndef ALGORITHM_H
 #define ALGORITHM_H
@@ -110,14 +110,14 @@ struct PointStruct
 // ─────────────────────────────────────────────────────────────
 // 像素点结构（mmap中单条滤波/邻域像素记录）
 // C# 对应: PixelPointStruct (IAlgorithmInterface2.cs)
-// sizeof = 24 bytes (Pack=4)
+// sizeof = 28 bytes (Pack=4)
 // ─────────────────────────────────────────────────────────────
 
 #pragma pack(push, 4)
 struct PixelPointStruct
 {
     int           ID;          // 数据点ID
-    PointStruct   Point;       // 晶圆坐标（mm）
+    PointStruct   Point;       // 晶圆坐标（um）
     unsigned short RingIndex;  // 所属圈号
     unsigned short RowIndex;   // 行号（LineIndex）
     unsigned short ColIndex;   // 列号（PixelIndex）
@@ -155,7 +155,6 @@ enum class DefectType: int
     AREA=3,
     SCRATCH=4,
     SLIPLINE=5,
-    SATURATED=6,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -168,7 +167,8 @@ enum class DetectChannel : int
     None   = 0,
     Narrow = 1,
     Wide1  = 2,
-    Wide2  = 3
+    Wide2  = 3,
+    Composite = 99      // 复合通道（合并 Narrow/Wide1/Wide2 结果）
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -202,6 +202,7 @@ struct DefectInfoStruct
     float SNR;                         // 信噪比
     float SumSNR;                      // SNR和值
     float Intensity;                   // intensity
+	float D2;                          // D2 value measures how circular the defect is. D2 = 4πA/P², where A is the area and P is the perimeter of the defect.
 
     // ── 标定 ──
     float PixelSize;                   // 像素尺寸（um/pixel）
@@ -225,7 +226,7 @@ enum class LogType : int
     None  = 0,
     Fatal = 1,
     Error = 2,
-    Warning  = 3,
+    Warning     = 3,
     Debug = 4,
     Info  = 5,
     All   = 6
@@ -279,6 +280,101 @@ ALGO_API AlgoResult AddContourCalculationImage(const unsigned char* imageData, d
 /// <summary>结束计算，获取圆心偏移和旋转角</summary>
 ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double* angle);
 
+// === 预扫描（PreScan）流水线（每通道 Begin → 每 Swath Begin/Add/End → End） ===
+// 通道ID：1 = 通道1，2 = 通道2；EndPreScanProcess 可用 1|2 表示合并两个通道的结果
+
+/// <summary>
+/// 设置预扫描参数（整片晶圆设置一次）。
+/// scanInfo: {
+///     "WaferRadius": float,                // 晶圆半径mm
+///     "EdgeExclusion": float,              // 边缘排除距离mm
+///     "ContourFeature": string,            // 晶圆轮廓类型 Notch|Flat
+///     "FlatAngleRange": float,             // 平边晶圆的角度范围（度，ContourFeature=Flat时有效）
+///     "ChannelCount": int                  // 扫描通道数量
+/// }
+/// processSettings: {
+///     "IntensityCalibration": string,      // 光强校准策略 None|Haze|SelfHaze|RefHaze
+///     "EnableOverLoadDectect": bool,       // 是否启用OverLoad（过载）检测
+///     "PixelFilterAutoThreshold": bool,    // 启用像素筛选自动阈值(一般只能计算低阈值)
+///     "PixelFilterSigma1": float,          // 自动阈值第一轮Sigma剔除系数（通常2.0~4.0）
+///     "PixelFilterSigma2": float,          // 自动阈值第二轮Sigma剔除系数（通常1.5~2.5）
+///     "PixelFilterLowThreshold": float,    // 像素筛选低阈值（手动模式，高于此值才保留）
+///     "PixelFilterHighThreshold": float,   // 像素筛选高阈值（高于此值直接判定为缺陷）
+///     "FilteredPixelMaxCount": int,        // 最大筛选像素数（性能保护，超过则截断）
+///     "AutoThreshold": bool,               // 是否启用自动阈值：false=固定阈值, true=自适应阈值
+///     "SingleSNRThreshold": float,         // 单像素SNR阈值（低于此值的像素被过滤）
+///     "SumSNRThreshold": float,            // 区域累积SNR阈值（SNR总和低于此值被过滤）
+///     "HighThreshold": float,              // 高阈值（用于区分强缺陷和弱缺陷）
+///     "LowThresholdCoeff": float,          // 低阈值系数（低阈值 = HighThreshold * LowThresholdCoeff）
+///     "MedianFilterKernelSize": int,       // 中值滤波核大小（1D滤波的窗口宽度）
+///     "GlobalMedianRatio": float           // 全局中值比率（用于背景估计）
+/// }
+/// clusterSettings: {
+///     "ClusterSearchRadius": float,        // 聚类搜索半径um（在此半径内的点被归为同一聚类）
+///     "ClusterMinPixelCount": int          // 聚类最小像素点数（少于此数的聚类被丢弃）
+/// }
+/// classifySettings: {
+///     "MinDefectSize": float,              // 最小缺陷尺寸（um）
+///     "MaxDefectSize": float,              // 最大缺陷尺寸（um）
+///     "AreaMinPixelCount": int,            // AREA类型粒子的最小像素数（低于此数的聚类不归为AREA）
+///     "SatToAreaPixelCount": int,          // 饱和像素转AREA的阈值（单聚类中饱和像素超过此数则归为AREA）
+///     "AREADisplayPixelSize": float,       // AREA缺陷显示的像素尺寸mm
+///     "NeighborPixelCount": int,           // 领域像素采样数量（用于计算单像素周边背景）
+///     "SNRThreshold": float,               // SNR阈值（二次分类用）
+///     "MaxDSizeKey": float,                // DSize分级曲线的最大Key值（um）
+///     "MaxDSizeValue": float               // DSize分级曲线的最大Value值（分类编号上限）
+/// }
+/// </summary>
+ALGO_API AlgoResult SetPreScanParameters(const char* scanInfo, const char* processSettings,
+    const char* clusterSettings, const char* classifySettings);
+
+/// <summary>
+/// 开始处理一个预扫描通道。
+/// channelID: 通道ID（1或2）
+/// scanSettings: {
+///     "SwathCount": int,                   // 此通道扫描的Swath数量
+///     "SwathStepDirection": string,        // 晶圆坐标系下Swath步进方向 X|Y|-X|-Y
+///     "SwathOverlapPixels": int,           // Swath之间重叠范围（像素）
+///     "FrameWidth": int,                   // 单帧宽度（像素）
+///     "FrameHeight": int,                  // 单帧高度（像素）
+///     "PixelSize": float,                  // 像素尺寸um
+///     "BitDepth": int,                     // 图像位深
+///     "SoftBinning": int,                  // 软件Binning倍数（1=无合并，2=2x2合并）
+///     "ImageSaveDirectory": string         // 图像保存目录（空表示不存图）
+/// }
+/// DSizeCurve: {
+///     "CurvePoints": [                     // 按Intensity升序，节点DSize单位为um
+///         {"Intensity": 0.0, "DSize": 0.0},
+///         {"Intensity": 100.0, "DSize": 0.025},
+///         ...
+///     ]
+/// }
+/// </summary>
+ALGO_API AlgoResult BeginPreScanChannelProcess(int channelID,
+    const char* scanSettings, const char* DSizeCurve);
+
+/// <summary>
+/// 开始处理预扫描通道的一个Swath。
+/// swathInfo: {
+///     "FrameCount": int,                   // 帧数
+///     "ScanDirection": string,             // 晶圆坐标系下扫描方向 X|Y|-X|-Y
+///     "FirstFrameCoordX": float,           // 第一帧图像左上角对应的Wafer坐标X（um）
+///     "FirstFrameCoordY": float            // 第一帧图像左上角对应的Wafer坐标Y（um）
+/// }
+/// </summary>
+ALGO_API AlgoResult BeginPreScanSwathProcess(int channelID, int swathIndex, const char* swathInfo);
+
+/// <summary>添加当前Swath的一帧图像，C++内部累积。timestamp为采集时间戳（用于日志追溯和数据关联）</summary>
+ALGO_API AlgoResult AddPreScanSwathFrame(int channelID, int swathIndex,
+    const unsigned char* imageData, int width, int height, int timestamp);
+
+/// <summary>结束当前Swath，C++内部开始该Swath的处理。isOverLoad/isHazeOverload为输出（C# 侧 [MarshalAs(UnmanagedType.U1)]，即1字节 bool）</summary>
+ALGO_API AlgoResult EndPreScanSwathProcess(int channelID, int swathIndex,
+    bool* isOverLoad, bool* isHazeOverload);
+
+/// <summary>结束预扫描通道的处理，返回该通道缺陷检测结果（内存映射文件）。channelID可用1|2表示合并两通道结果</summary>
+ALGO_API AlgoResult EndPreScanProcess(int channelID, DefectInfoListStruct* descriptor);
+
 // === 通道处理流水线 ===
 
 /// <summary>
@@ -291,7 +387,8 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 ///     "ImageSaveDirectory": string,
 ///     "DebugOutput": bool,             //bool: whether to save intermediate results for debugging
 ///     "Material": string             // string: Wafer material, "silicon" or "glass" or "tialsi"
-///     "ROI":{"Rmin":float,"Rmax":float,"Tmin":float,"Tmax":float} //  region of interest in polar coordinates (mm, degrees in [0,360])
+///     "ROE": {"Rectangles": [ {"Xmin": float, "Xmax": float, "Ymin": float, "Ymax": float}, ... ],  // optional: rectangular ROE regions
+///             "Rings": [{"Rmin": float,"Rmax":float,"Tmin":float,"Tmax":float},...]} // optional: ring ROE regions  
 /// }
 /// cluster: {
 ///     "WaferRadius": float,            // 晶圆半径mm
@@ -378,7 +475,7 @@ ALGO_API AlgoResult BeginChannelProcess(DetectChannel channelID,
 ///     },
 ///     "RingWidth": float,                  // 当前圈的宽度（pixel）
 ///     "RingHeight": float,                 // 当前圈的总高度（pixel）
-///     "OverlapPixels": int,                // 当前圈与下一圈的重叠像素数
+///     "OverlapPixels": int,                // 当前圈与上一圈的重叠像素数
 ///     "CurrentRing": int,                  // 当前圈索引
 ///     "TotalRings": int                    // 总圈数
 /// }
@@ -391,7 +488,7 @@ ALGO_API AlgoResult AddRingProcessFrame(DetectChannel channelID, int ringIndex,
     const unsigned char* imageData, int width, int height, int validRows,
     int timestamp, int softBinning);
 
-/// <summary>结束当前圈，C++内部开始拼接+校准+筛选。返回过载标志</summary>
+/// <summary>结束当前圈，C++内部开始拼接+校准+筛选。返回过载标志（C# 侧 [MarshalAs(UnmanagedType.U1)]，即1字节 bool）</summary>
 ALGO_API AlgoResult EndRingProcess(DetectChannel channelID, int ringIndex,
     bool* isOverLoad, bool* isHazeOverload);
 

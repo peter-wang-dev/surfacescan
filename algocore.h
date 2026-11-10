@@ -1,4 +1,17 @@
  #include <opencv2/opencv.hpp>
+struct Regions
+{
+	struct Rectangle
+	{
+		float Xmin,Xmax,Ymin,Ymax;
+	};
+	struct Ring
+	{
+		float Rmin,Rmax,Tmin,Tmax;
+	}	;
+	std::vector<Rectangle> Rectangles; // optional: rectangular ROE regions
+	std::vector<Ring> Rings; // optional: ring ROE regions, each tuple is (Rmin,Rmax,Tmin,Tmax)
+};
 cv::Mat dehaze(cv::Mat image);
 std::vector<double> estimate_column_intensity_stat(const cv::Mat& image,float minvalid=-1e12,float maxvalid=1e12);
 //std::vector<double> estimate_column_intensity_stat(const cv::Mat &image);
