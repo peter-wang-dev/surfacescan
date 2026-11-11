@@ -329,8 +329,7 @@ void ConvertCoordinates(double X_stage,double Y_stage,double* X_wafer,double* Y_
 /// }
 /// </summary>
 ALGO_API AlgoResult SetPreScanParameters(const char* scanInfo, const char* processSettings,
-    const char* clusterSettings, const char* classifySettings)
-{ return AlgoResult::Success(); }
+    const char* clusterSettings, const char* classifySettings);
 
 /// <summary>
 /// 开始处理一个预扫描通道。
@@ -355,8 +354,7 @@ ALGO_API AlgoResult SetPreScanParameters(const char* scanInfo, const char* proce
 /// }
 /// </summary>
 ALGO_API AlgoResult BeginPreScanChannelProcess(int channelID,
-    const char* scanSettings, const char* DSizeCurve)
-{ return AlgoResult::Success(); }
+    const char* scanSettings, const char* DSizeCurve);
 
 /// <summary>
 /// 开始处理预扫描通道的一个Swath。
@@ -367,22 +365,18 @@ ALGO_API AlgoResult BeginPreScanChannelProcess(int channelID,
 ///     "FirstFrameCoordY": float            // 第一帧图像左上角对应的Wafer坐标Y（um）
 /// }
 /// </summary>
-ALGO_API AlgoResult BeginPreScanSwathProcess(int channelID, int swathIndex, const char* swathInfo)
-{ return AlgoResult::Success(); }
+ALGO_API AlgoResult BeginPreScanSwathProcess(int channelID, int swathIndex, const char* swathInfo);
 
 /// <summary>添加当前Swath的一帧图像，C++内部累积。timestamp为采集时间戳（用于日志追溯和数据关联）</summary>
 ALGO_API AlgoResult AddPreScanSwathFrame(int channelID, int swathIndex,
-    const unsigned char* imageData, int width, int height, int timestamp)
-{ return AlgoResult::Success(); }
+    const unsigned char* imageData, int width, int height, int timestamp);
 
 /// <summary>结束当前Swath，C++内部开始该Swath的处理。isOverLoad/isHazeOverload为输出（C# 侧 [MarshalAs(UnmanagedType.U1)]，即1字节 bool）</summary>
 ALGO_API AlgoResult EndPreScanSwathProcess(int channelID, int swathIndex,
-    bool* isOverLoad, bool* isHazeOverload)
-{ return AlgoResult::Success(); }
+    bool* isOverLoad, bool* isHazeOverload);
 
 /// <summary>结束预扫描通道的处理，返回该通道缺陷检测结果（内存映射文件）。channelID可用1|2表示合并两通道结果</summary>
-ALGO_API AlgoResult EndPreScanProcess(int channelID, DefectInfoListStruct* descriptor)
-{ return AlgoResult::Success(); }
+ALGO_API AlgoResult EndPreScanProcess(int channelID, DefectInfoListStruct* descriptor);
 
 // === 通道处理流水线 ===
 

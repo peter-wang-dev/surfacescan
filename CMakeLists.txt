@@ -23,7 +23,7 @@ find_package(cxxopts CONFIG REQUIRED)
 find_package(TIFF REQUIRED)
 include(GoogleTest)  # for testing 
 
-add_library(algo SHARED algointf.cpp algorithm.h algocore.cpp io.h io.cpp)
+add_library(algo SHARED algointf.cpp calib.cpp algorithm.h algocore.cpp io.h io.cpp)
 target_link_libraries(algo PRIVATE ${OpenCV_LIBS} OpenMP::OpenMP_CXX TIFF::TIFF)
 target_link_libraries(algo PRIVATE nlohmann_json::nlohmann_json)
 

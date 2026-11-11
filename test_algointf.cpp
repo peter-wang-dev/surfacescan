@@ -37,6 +37,90 @@ protected:
 	{
 	}
 };
+TEST_F(AlgoTest,PreScanStubsRemainAvailable)
+{
+	EXPECT_TRUE(SetPreScanParameters(nullptr,nullptr,nullptr,nullptr).IsSuccess);
+	EXPECT_TRUE(BeginPreScanChannelProcess(0,nullptr,nullptr).IsSuccess);
+	EXPECT_TRUE(BeginPreScanSwathProcess(0,0,nullptr).IsSuccess);
+	EXPECT_TRUE(AddPreScanSwathFrame(0,0,nullptr,0,0,0).IsSuccess);
+	EXPECT_TRUE(EndPreScanSwathProcess(0,0,nullptr,nullptr).IsSuccess);
+	EXPECT_TRUE(EndPreScanProcess(0,nullptr).IsSuccess);
+}
+TEST_F(AlgoTest,ContourCalibrationSyntheticReset)
+{
+	static std::vector<std::string> logSources;
+	logSources.clear();
+	ASSERT_TRUE(SetLogMessageCallBack([](LogType,const char* source,const char*) {
+		logSources.emplace_back(source);
+	}).IsSuccess);
+
+	ContourCalcParameter parameters={200.0,ContourFeature::Notch,45.0,240,240,4.0,SearchDirection::TopToBottom,128};
+	ASSERT_TRUE(BeginContourCalculation(parameters).IsSuccess);
+	cv::Mat image(parameters.ImageHeight,parameters.ImageWidth,CV_8UC1,cv::Scalar(255));
+	cv::circle(image,cv::Point(120,120),90,cv::Scalar(0),cv::FILLED);
+	cv::rectangle(image,cv::Point(95,20),cv::Point(145,65),cv::Scalar(255),cv::FILLED);
+	ASSERT_TRUE(AddContourCalculationImage(image.data,25.0).IsSuccess);
+	image.setTo(cv::Scalar(255));
+
+	double x=0,y=0,angle=0;
+	auto result=EndContourCalculation(&x,&y,&angle);
+	ASSERT_TRUE(result.IsSuccess)<<result.ErrorMessage;
+	EXPECT_NEAR(x,0.48,0.05);
+	EXPECT_NEAR(y,-0.48,0.05);
+	EXPECT_NEAR(angle,115.0,20.0);
+	EXPECT_TRUE(std::find(logSources.begin(),logSources.end(),"AddContourCalculationImage")!=logSources.end());
+	EXPECT_TRUE(std::find(logSources.begin(),logSources.end(),"EndContourCalculation")!=logSources.end());
+
+	ASSERT_TRUE(Initialize().IsSuccess);
+	result=EndContourCalculation(&x,&y,&angle);
+	EXPECT_FALSE(result.IsSuccess);
+	EXPECT_STREQ(result.ErrorMessage,"Notch not found");
+}
+TEST_F(AlgoTest,CenterCalibrationSyntheticReset)
+{
+	namespace fs=std::filesystem;
+	const auto originalDirectory=fs::current_path();
+	const auto temporaryDirectory=fs::temp_directory_path()/std::format("waferinsp_calibration_{}_{}",
+		std::chrono::steady_clock::now().time_since_epoch().count(),std::random_device{}());
+	ASSERT_TRUE(fs::create_directory(temporaryDirectory));
+	struct RestoreDirectory
+	{
+		fs::path original,temporary;
+		~RestoreDirectory()
+		{
+			std::error_code ec;
+			fs::current_path(original,ec);
+			if(!ec) fs::remove_all(temporary,ec);
+		}
+	} restoreDirectory{originalDirectory,temporaryDirectory};
+	fs::current_path(temporaryDirectory);
+
+	ContourCalcParameter parameters={200.0,ContourFeature::Notch,45.0,200,300,4.0,SearchDirection::TopToBottom,128};
+	ASSERT_TRUE(BeginCenterCalculation(parameters).IsSuccess);
+	cv::Mat image(parameters.ImageHeight,parameters.ImageWidth,CV_8UC1,cv::Scalar(255));
+	std::array<cv::Point,3> offsets={cv::Point(0,0),cv::Point(50,0),cv::Point(0,40)};
+	for(size_t i=0;i<offsets.size();++i)
+	{
+		image.setTo(cv::Scalar(255));
+		cv::rectangle(image,cv::Rect(30+offsets[i].x,30+offsets[i].y,120,41),cv::Scalar(0),cv::FILLED);
+		auto result=AddCenterCalculationImage(image.data,static_cast<double>(i)*90.0);
+		ASSERT_TRUE(result.IsSuccess)<<result.ErrorMessage;
+	}
+
+	double x=0,y=0,angle=0;
+	auto result=EndCenterCalculation(&x,&y,&angle);
+	ASSERT_TRUE(result.IsSuccess)<<result.ErrorMessage;
+	EXPECT_NEAR(x,114.5,0.05);
+	EXPECT_NEAR(y,-20.0,0.05);
+	EXPECT_DOUBLE_EQ(angle,17.0);
+
+	ASSERT_TRUE(Initialize().IsSuccess);
+	ASSERT_TRUE(BeginCenterCalculation(parameters).IsSuccess);
+	ASSERT_TRUE(AddCenterCalculationImage(image.data,0.0).IsSuccess);
+	result=EndCenterCalculation(&x,&y,&angle);
+	EXPECT_FALSE(result.IsSuccess);
+	EXPECT_STREQ(result.ErrorMessage,"Not enough estimated wafer centers");
+}
 TEST_F(AlgoTest,cencal)
 { 
 	auto res_calbegin=BeginCenterCalculation({200.0, ContourFeature::Notch, 45.0, 1200, 1920, 4.784688, SearchDirection::TopToBottom, 128});
