@@ -226,7 +226,7 @@ enum class LogType : int
     None  = 0,
     Fatal = 1,
     Error = 2,
-    Warning     = 3,
+    Warn= 3,
     Debug = 4,
     Info  = 5,
     All   = 6
@@ -280,6 +280,9 @@ ALGO_API AlgoResult AddContourCalculationImage(const unsigned char* imageData, d
 /// <summary>结束计算，获取圆心偏移和旋转角</summary>
 ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double* angle);
 
+/// <summary>Coordinate conversion from stage to wafer. All the four values are in um. This function is only used by dll internally and does not has the ALGO_API prefix</summary>
+void ConvertCoordinates(double X_stage,double Y_stage,double* X_wafer,double* Y_wafer);
+
 // === 预扫描（PreScan）流水线（每通道 Begin → 每 Swath Begin/Add/End → End） ===
 // 通道ID：1 = 通道1，2 = 通道2；EndPreScanProcess 可用 1|2 表示合并两个通道的结果
 
@@ -326,7 +329,8 @@ ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double
 /// }
 /// </summary>
 ALGO_API AlgoResult SetPreScanParameters(const char* scanInfo, const char* processSettings,
-    const char* clusterSettings, const char* classifySettings);
+    const char* clusterSettings, const char* classifySettings)
+{ return AlgoResult::Success(); }
 
 /// <summary>
 /// 开始处理一个预扫描通道。
@@ -351,7 +355,8 @@ ALGO_API AlgoResult SetPreScanParameters(const char* scanInfo, const char* proce
 /// }
 /// </summary>
 ALGO_API AlgoResult BeginPreScanChannelProcess(int channelID,
-    const char* scanSettings, const char* DSizeCurve);
+    const char* scanSettings, const char* DSizeCurve)
+{ return AlgoResult::Success(); }
 
 /// <summary>
 /// 开始处理预扫描通道的一个Swath。
@@ -362,18 +367,22 @@ ALGO_API AlgoResult BeginPreScanChannelProcess(int channelID,
 ///     "FirstFrameCoordY": float            // 第一帧图像左上角对应的Wafer坐标Y（um）
 /// }
 /// </summary>
-ALGO_API AlgoResult BeginPreScanSwathProcess(int channelID, int swathIndex, const char* swathInfo);
+ALGO_API AlgoResult BeginPreScanSwathProcess(int channelID, int swathIndex, const char* swathInfo)
+{ return AlgoResult::Success(); }
 
 /// <summary>添加当前Swath的一帧图像，C++内部累积。timestamp为采集时间戳（用于日志追溯和数据关联）</summary>
 ALGO_API AlgoResult AddPreScanSwathFrame(int channelID, int swathIndex,
-    const unsigned char* imageData, int width, int height, int timestamp);
+    const unsigned char* imageData, int width, int height, int timestamp)
+{ return AlgoResult::Success(); }
 
 /// <summary>结束当前Swath，C++内部开始该Swath的处理。isOverLoad/isHazeOverload为输出（C# 侧 [MarshalAs(UnmanagedType.U1)]，即1字节 bool）</summary>
 ALGO_API AlgoResult EndPreScanSwathProcess(int channelID, int swathIndex,
-    bool* isOverLoad, bool* isHazeOverload);
+    bool* isOverLoad, bool* isHazeOverload)
+{ return AlgoResult::Success(); }
 
 /// <summary>结束预扫描通道的处理，返回该通道缺陷检测结果（内存映射文件）。channelID可用1|2表示合并两通道结果</summary>
-ALGO_API AlgoResult EndPreScanProcess(int channelID, DefectInfoListStruct* descriptor);
+ALGO_API AlgoResult EndPreScanProcess(int channelID, DefectInfoListStruct* descriptor)
+{ return AlgoResult::Success(); }
 
 // === 通道处理流水线 ===
 

@@ -672,7 +672,7 @@ extern "C"
 		size_t offset=static_cast<size_t>(rings[channelID][ringIndex].cursor)*static_cast<size_t>(width)*2; // 2 bytes per pixel for CV_16UC1
 		if(offset+dataSize>static_cast<size_t>(dst.rows)*static_cast<size_t>(dst.cols)*2)
 		{ 
-			write_log(LogType::Warning,"AddRingProcessFrame",std::format("Truncated data exceeds allocated ring image size: offset={} + dataSize={} > totalSize={}",offset,dataSize,dst.rows*dst.cols).c_str());
+			write_log(LogType::Warn,"AddRingProcessFrame",std::format("Truncated data exceeds allocated ring image size: offset={} + dataSize={} > totalSize={}",offset,dataSize,dst.rows*dst.cols).c_str());
 			//return AlgoResult::Failure("AddRingProcessFrame: data exceeds allocated ring image size");
 			dataSize=static_cast<size_t>(dst.rows)*static_cast<size_t>(dst.cols)-offset;
 		}
@@ -785,7 +785,7 @@ extern "C"
 		}
 		catch(const std::exception& e)
 		{
-			write_log(LogType::Warning,"EndChannelProcess",std::format("channelID={} using default settings due to exception during extracting settings: {}",static_cast<int>(channelID),e.what()).c_str());
+			write_log(LogType::Warn,"EndChannelProcess",std::format("channelID={} using default settings due to exception during extracting settings: {}",static_cast<int>(channelID),e.what()).c_str());
 		}
 
 		//PROCESS OF EACH RING 
@@ -880,7 +880,7 @@ extern "C"
  
 				if(col>=cols||row<0||col<0)
 				{
-					write_log(LogType::Warning,"EndChannelProcess",std::format("Out of bounds: ringIndex={}, row={}, col={}, rows={}, cols={}",idxr,row,col,rows,cols).c_str());
+					write_log(LogType::Warn,"EndChannelProcess",std::format("Out of bounds: ringIndex={}, row={}, col={}, rows={}, cols={}",idxr,row,col,rows,cols).c_str());
 					continue; // out of bounds, skip
 				}
 				row=std::clamp(row,0,rows-1);
@@ -924,7 +924,7 @@ extern "C"
 				}
 				else
 				{
-					write_log(LogType::Warning,"EndChannelProcess","DSizeCurveJson does not contain 'CurvePoints' or it is not an array. Using default values."); 
+					write_log(LogType::Warn,"EndChannelProcess","DSizeCurveJson does not contain 'CurvePoints' or it is not an array. Using default values."); 
 					Intensities={3000,5000};
 					DSizes={0.2,0.5};
 				}
