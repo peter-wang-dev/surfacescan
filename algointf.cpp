@@ -35,8 +35,8 @@ void write_log(LogType level,const char* source,const char* message)
 		return;
 	}
 	//if(LogType::Info==level) return; 
-	auto timestamp=std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-	printf("[%d @ %lld] %s: %s\n",static_cast<int>(level),static_cast<long long>(timestamp),source,message);
+	auto timestamp=std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now());
+	std::println("[{} @ {:%T}] {}: {}",static_cast<int>(level),timestamp,source,message);
 }
 void imgprobe(cv::Mat img, bool continue_flag=false)
 {
@@ -162,7 +162,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		double cy=centroids.at<double>(lbl,1);
 		//cv::Point2d centroid(cx,cy);
 
-		DefectInfoStruct defect{0};
+		DefectInfoStruct defect;
 		defect.DefectID=static_cast<int>(1);
 		defect.ChannelID=channel;
 		defect.Type=DefectType::LPD;

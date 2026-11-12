@@ -8,8 +8,8 @@ std::vector<double> estimate_column_intensity(cv::Mat image)
 		throw std::invalid_argument("Input image is empty");
 	if(image.type()!=CV_8UC1&&image.type()!=CV_16UC1&&image.type()!=CV_32FC1)
 		throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
-    if (image.dims != 2 || image.rows <= 0 || image.cols <= 0)
-        throw std::invalid_argument("Input image must be a non-empty 2D image");
+	if(image.dims!=2||image.rows<=0||image.cols<=0)
+		throw std::invalid_argument("Input image must be a non-empty 2D image");
 
 	int W=image.cols;
 	// Calculate the average intensity of each column
@@ -17,7 +17,7 @@ std::vector<double> estimate_column_intensity(cv::Mat image)
 	cv::reduce(image,col_avg,0,cv::REDUCE_AVG,CV_64F);
 	double* avg_ptr=col_avg.ptr<double>(0);
 	std::vector<double> column_intensities(W);
-	for(int x=0; x<W; ++x) 
+	for(int x=0; x<W; ++x)
 		column_intensities[x]=avg_ptr[x];
 	return column_intensities;
 }
@@ -215,7 +215,7 @@ std::vector<float> get_intensity_distribution(const cv::Mat& image,int column_in
 	std::uniform_int_distribution<int> x_distribution(0,float_image.cols-1);
 	std::uniform_int_distribution<int> y_distribution(0,float_image.rows-1);
 	if(column_index==-1)
-		for(int k=0; k<total_samples; ++k)
+		for(std::size_t k=0; k<total_samples; ++k)
 		{
 
 			int x=x_distribution(generator);
@@ -224,7 +224,7 @@ std::vector<float> get_intensity_distribution(const cv::Mat& image,int column_in
 			intensities.push_back(pixel);
 		}
 	else
-		for(int k=0; k<total_samples; ++k)
+		for(std::size_t k=0; k<total_samples; ++k)
 		{
 			int y=y_distribution(generator);
 			float pixel=float_image.at<float>(y,column_index);

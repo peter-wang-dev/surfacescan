@@ -13,7 +13,7 @@ project(waferinsp VERSION 1.0 LANGUAGES CXX)
 if(MSVC)    
     add_compile_options(/W4 /std:c++latest /external:anglebrackets /external:W0)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")    
-    add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unknown-pragmas -Wno-override-init -Wno-missing-field-initializers -O3) 
+    add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unknown-pragmas -Wno-experimental -Wno-missing-field-initializers -O3) 
 endif()
 find_package(OpenCV CONFIG REQUIRED) # 
 find_package(GTest CONFIG REQUIRED)
@@ -23,7 +23,7 @@ find_package(cxxopts CONFIG REQUIRED)
 find_package(TIFF REQUIRED)
 include(GoogleTest)  # for testing 
 
-add_library(algo SHARED algointf.cpp calib.cpp algorithm.h algocore.cpp io.h io.cpp)
+add_library(algo SHARED algointf.cpp calib.cpp calibcore.cpp calibcore.h algorithm.h algocore.cpp io.h io.cpp)
 target_link_libraries(algo PRIVATE ${OpenCV_LIBS} OpenMP::OpenMP_CXX TIFF::TIFF)
 target_link_libraries(algo PRIVATE nlohmann_json::nlohmann_json)
 
@@ -33,7 +33,7 @@ target_link_libraries(wi PRIVATE ${OpenCV_LIBS} algo cxxopts::cxxopts)
 add_executable(test_algointf test_algointf.cpp algocore.cpp io.h io.cpp)
 target_link_libraries(test_algointf PRIVATE GTest::gtest_main ${OpenCV_LIBS} algo)
 gtest_discover_tests(test_algointf)
-add_executable(test_algocore test_algocore.cpp algocore.cpp algocore.h)
+add_executable(test_algocore test_algocore.cpp algocore.cpp algocore.h calibcore.cpp calibcore.h)
 target_link_libraries(test_algocore PRIVATE GTest::gtest_main ${OpenCV_LIBS} algo)
 gtest_discover_tests(test_algocore)
 

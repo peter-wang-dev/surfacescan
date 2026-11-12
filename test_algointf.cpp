@@ -37,6 +37,26 @@ protected:
 	{
 	}
 };
+namespace
+{
+	ContourCalcParameter synthetic_contour_parameters()
+	{
+		return {0.96,ContourFeature::Notch,17.0,420,420,4.0,SearchDirection::TopToBottom,128};
+	}
+
+	cv::Mat synthetic_contour_image(double stage_angle,bool notch)
+	{
+		const double radians=stage_angle*std::numbers::pi/180.0;
+		const cv::Point center(cvRound(200.0+8.0*std::cos(radians)+5.0*std::sin(radians)),
+			cvRound(200.0+8.0*std::sin(radians)-5.0*std::cos(radians)));
+		cv::Mat image(420,420,CV_8UC1,cv::Scalar(0));
+		cv::circle(image,center,120,cv::Scalar(255),cv::FILLED);
+		if(notch) cv::rectangle(image,cv::Point(center.x-15,center.y-130),
+			cv::Point(center.x+15,center.y-80),cv::Scalar(0),cv::FILLED);
+		return image;
+	}
+}
+
 TEST_F(AlgoTest,PreScanStubsRemainAvailable)
 {
 	EXPECT_TRUE(SetPreScanParameters(nullptr,nullptr,nullptr,nullptr).IsSuccess);
@@ -54,27 +74,165 @@ TEST_F(AlgoTest,ContourCalibrationSyntheticReset)
 		logSources.emplace_back(source);
 	}).IsSuccess);
 
-	ContourCalcParameter parameters={200.0,ContourFeature::Notch,45.0,240,240,4.0,SearchDirection::TopToBottom,128};
+	auto parameters=synthetic_contour_parameters();
+	std::array<double,9> camera={500.0,0.0,210.0,0.0,500.0,210.0,0.0,0.0,1.0};
+	std::array<double,5> distortion{};
+	parameters.CameraMatrix=camera.data();
+	parameters.DistCoeffs=distortion.data();
+	parameters.DistCoeffsCount=static_cast<int>(distortion.size());
 	ASSERT_TRUE(BeginContourCalculation(parameters).IsSuccess);
-	cv::Mat image(parameters.ImageHeight,parameters.ImageWidth,CV_8UC1,cv::Scalar(255));
-	cv::circle(image,cv::Point(120,120),90,cv::Scalar(0),cv::FILLED);
-	cv::rectangle(image,cv::Point(95,20),cv::Point(145,65),cv::Scalar(255),cv::FILLED);
-	ASSERT_TRUE(AddContourCalculationImage(image.data,25.0).IsSuccess);
-	image.setTo(cv::Scalar(255));
+	camera.fill(std::numeric_limits<double>::quiet_NaN());
+	distortion.fill(std::numeric_limits<double>::quiet_NaN());
+	for(double stage_angle:{180.0,0.0,270.0,90.0})
+	{
+		auto image=synthetic_contour_image(stage_angle,stage_angle==90.0);
+		auto result=AddContourCalculationImage(image.data,stage_angle);
+		ASSERT_TRUE(result.IsSuccess)<<result.ErrorMessage;
+		image.setTo(cv::Scalar(0));
+	}
 
 	double x=0,y=0,angle=0;
 	auto result=EndContourCalculation(&x,&y,&angle);
 	ASSERT_TRUE(result.IsSuccess)<<result.ErrorMessage;
-	EXPECT_NEAR(x,0.48,0.05);
-	EXPECT_NEAR(y,-0.48,0.05);
-	EXPECT_NEAR(angle,115.0,20.0);
+	EXPECT_NEAR(x,0.820,0.010);
+	EXPECT_NEAR(y,-0.832,0.010);
+	EXPECT_NEAR(angle,197.0,5.0);
+	EXPECT_TRUE(std::find(logSources.begin(),logSources.end(),"BeginContourCalculation")!=logSources.end());
 	EXPECT_TRUE(std::find(logSources.begin(),logSources.end(),"AddContourCalculationImage")!=logSources.end());
 	EXPECT_TRUE(std::find(logSources.begin(),logSources.end(),"EndContourCalculation")!=logSources.end());
+
+	parameters=synthetic_contour_parameters();
+	ASSERT_TRUE(BeginContourCalculation(parameters).IsSuccess);
+	auto image=synthetic_contour_image(90.0,true);
+	ASSERT_TRUE(AddContourCalculationImage(image.data,90.0).IsSuccess);
+	result=EndContourCalculation(&x,&y,&angle);
+	EXPECT_FALSE(result.IsSuccess);
+	EXPECT_STREQ(result.ErrorMessage,"At least 3 frames are required");
+	EXPECT_DOUBLE_EQ(x,0.0);
+	EXPECT_DOUBLE_EQ(y,0.0);
+	EXPECT_DOUBLE_EQ(angle,0.0);
 
 	ASSERT_TRUE(Initialize().IsSuccess);
 	result=EndContourCalculation(&x,&y,&angle);
 	EXPECT_FALSE(result.IsSuccess);
-	EXPECT_STREQ(result.ErrorMessage,"Notch not found");
+	EXPECT_STREQ(result.ErrorMessage,"Call BeginContourCalculation before ending calculation");
+	EXPECT_FALSE(AddContourCalculationImage(image.data,90.0).IsSuccess);
+}
+TEST_F(AlgoTest,ContourCalibrationValidation)
+{
+	const auto parameters=synthetic_contour_parameters();
+	EXPECT_DOUBLE_EQ(parameters.FixedRadiusPx,0.0);
+	EXPECT_EQ(parameters.RoundnessHarmonics,2);
+	EXPECT_EQ(parameters.EnableSubpixel,1);
+	EXPECT_DOUBLE_EQ(parameters.SubpixelSearchPx,1.5);
+	EXPECT_DOUBLE_EQ(parameters.SubpixelStepPx,0.25);
+	EXPECT_DOUBLE_EQ(parameters.RadiusTolRatio,0.05);
+	EXPECT_EQ(parameters.FrameWeightMode,ContourFrameWeightMode::Voronoi);
+	EXPECT_DOUBLE_EQ(parameters.FrameWeightWindowDeg,0.0);
+	static_assert(sizeof(ContourFrameWeightMode)==sizeof(int));
+	static_assert(std::is_standard_layout_v<ContourCalcParameter>);
+
+	auto image=synthetic_contour_image(0.0,false);
+	EXPECT_FALSE(AddContourCalculationImage(image.data,0.0).IsSuccess);
+	auto reject=[&](const char* name,auto change) {
+		SCOPED_TRACE(name);
+		ASSERT_TRUE(BeginContourCalculation(parameters).IsSuccess);
+		auto invalid=parameters;
+		change(invalid);
+		EXPECT_FALSE(BeginContourCalculation(invalid).IsSuccess);
+		EXPECT_FALSE(AddContourCalculationImage(image.data,0.0).IsSuccess);
+		double x=1.0,y=1.0,angle=1.0;
+		EXPECT_FALSE(EndContourCalculation(&x,&y,&angle).IsSuccess);
+		EXPECT_DOUBLE_EQ(x,0.0);
+		EXPECT_DOUBLE_EQ(y,0.0);
+		EXPECT_DOUBLE_EQ(angle,0.0);
+	};
+	reject("width",[](auto& p) { p.ImageWidth=0; });
+	reject("height",[](auto& p) { p.ImageHeight=-1; });
+	reject("pixel size",[](auto& p) { p.PixelSize=0.0; });
+	reject("wafer size",[](auto& p) { p.WaferSize=std::numeric_limits<double>::infinity(); });
+	reject("feature angle",[](auto& p) { p.FeatureAngle=std::numeric_limits<double>::quiet_NaN(); });
+	reject("harmonics",[](auto& p) { p.RoundnessHarmonics=4; });
+	reject("fixed radius",[](auto& p) { p.FixedRadiusPx=-1.0; });
+	reject("frame mode",[](auto& p) { p.FrameWeightMode=static_cast<ContourFrameWeightMode>(3); });
+	reject("frame window",[](auto& p) { p.FrameWeightWindowDeg=std::numeric_limits<double>::quiet_NaN(); });
+	reject("radius tolerance",[](auto& p) { p.RadiusTolRatio=-0.1; });
+	reject("subpixel step",[](auto& p) { p.SubpixelStepPx=std::numeric_limits<double>::quiet_NaN(); });
+	reject("subpixel sampling",[](auto& p) { p.SubpixelSearchPx=std::numeric_limits<double>::max(); });
+	reject("distortion buffer",[](auto& p) { p.DistCoeffsCount=5; });
+	std::array<double,4> bad_distortion={0.0,0.0,0.0,std::numeric_limits<double>::quiet_NaN()};
+	reject("distortion count",[&](auto& p) { p.DistCoeffs=bad_distortion.data(); p.DistCoeffsCount=3; });
+	reject("distortion values",[&](auto& p) { p.DistCoeffs=bad_distortion.data(); p.DistCoeffsCount=4; });
+	std::array<double,9> bad_camera{};
+	reject("camera matrix",[&](auto& p) { p.CameraMatrix=bad_camera.data(); });
+
+	ASSERT_TRUE(BeginContourCalculation(parameters).IsSuccess);
+	EXPECT_FALSE(AddContourCalculationImage(nullptr,0.0).IsSuccess);
+	EXPECT_FALSE(AddContourCalculationImage(image.data,std::numeric_limits<double>::quiet_NaN()).IsSuccess);
+	double x=1.0,y=1.0,angle=1.0;
+	EXPECT_FALSE(EndContourCalculation(nullptr,&y,&angle).IsSuccess);
+	auto result=EndContourCalculation(&x,&y,&angle);
+	EXPECT_FALSE(result.IsSuccess);
+	EXPECT_STREQ(result.ErrorMessage,"At least 3 frames are required");
+	EXPECT_DOUBLE_EQ(x,0.0);
+	EXPECT_DOUBLE_EQ(y,0.0);
+	EXPECT_DOUBLE_EQ(angle,0.0);
+}
+TEST_F(AlgoTest,ContourCalibrationFrameWeights)
+{
+	for(auto mode:{ContourFrameWeightMode::None,ContourFrameWeightMode::Voronoi,ContourFrameWeightMode::Density})
+	{
+		SCOPED_TRACE(static_cast<int>(mode));
+		auto parameters=synthetic_contour_parameters();
+		parameters.FixedRadiusPx=120.0;
+		parameters.RoundnessHarmonics=0;
+		parameters.FrameWeightMode=mode;
+		parameters.FrameWeightWindowDeg=90.0;
+		ASSERT_TRUE(BeginContourCalculation(parameters).IsSuccess);
+		for(double stage_angle:{270.0,90.0,0.0,180.0,95.0})
+		{
+			auto image=synthetic_contour_image(stage_angle,stage_angle==90.0);
+			auto result=AddContourCalculationImage(image.data,stage_angle);
+			ASSERT_TRUE(result.IsSuccess)<<result.ErrorMessage;
+		}
+		double x=0.0,y=0.0,angle=0.0;
+		auto result=EndContourCalculation(&x,&y,&angle);
+		ASSERT_TRUE(result.IsSuccess)<<result.ErrorMessage;
+		EXPECT_NEAR(x,0.820,0.010);
+		EXPECT_NEAR(y,-0.832,0.010);
+		EXPECT_NEAR(angle,197.0,5.0);
+	}
+}
+TEST_F(AlgoTest,ContourCalibrationFitFailures)
+{
+	auto parameters=synthetic_contour_parameters();
+	ASSERT_TRUE(BeginContourCalculation(parameters).IsSuccess);
+	for(double stage_angle:{0.0,90.0,180.0})
+	{
+		auto image=synthetic_contour_image(stage_angle,false);
+		ASSERT_TRUE(AddContourCalculationImage(image.data,stage_angle).IsSuccess);
+	}
+	double x=1.0,y=1.0,angle=1.0;
+	auto result=EndContourCalculation(&x,&y,&angle);
+	EXPECT_FALSE(result.IsSuccess);
+	EXPECT_STREQ(result.ErrorMessage,"Notch not found; check diagnostics");
+	EXPECT_DOUBLE_EQ(x,0.0);
+	EXPECT_DOUBLE_EQ(y,0.0);
+	EXPECT_DOUBLE_EQ(angle,0.0);
+
+	parameters.FixedRadiusPx=240.0;
+	ASSERT_TRUE(BeginContourCalculation(parameters).IsSuccess);
+	for(double stage_angle:{0.0,90.0,180.0})
+	{
+		auto image=synthetic_contour_image(stage_angle,stage_angle==90.0);
+		ASSERT_TRUE(AddContourCalculationImage(image.data,stage_angle).IsSuccess);
+	}
+	result=EndContourCalculation(&x,&y,&angle);
+	EXPECT_FALSE(result.IsSuccess);
+	EXPECT_STREQ(result.ErrorMessage,"Fit validation failed: radius or edge RMSE outside allowed range");
+	EXPECT_DOUBLE_EQ(x,0.0);
+	EXPECT_DOUBLE_EQ(y,0.0);
+	EXPECT_DOUBLE_EQ(angle,0.0);
 }
 TEST_F(AlgoTest,CenterCalibrationSyntheticReset)
 {

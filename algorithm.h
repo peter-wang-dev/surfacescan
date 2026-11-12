@@ -82,16 +82,35 @@ enum class SearchDirection : int
     BottomToTop  = 3
 };
 
+enum class ContourFrameWeightMode : int
+{
+    None = 0,
+    Voronoi = 1,
+    Density = 2
+};
+
 struct ContourCalcParameter
 {
     double WaferSize;           // 晶圆直径（mm）
     ContourFeature Feature;     // 轮廓特征类型
-    double FeatureAngle;        // 预估角度（度）
+    double FeatureAngle;        // Notch 基准角偏移（叠加到输出角，度）
     int    ImageHeight;         // 图像高度（像素）
     int    ImageWidth;          // 图像宽度（像素）
     double PixelSize;           // 像素尺寸（um/pixel）
     SearchDirection Direction;  // 寻边方向
     int    Threshold;           // 二值化阈值（0-255）
+
+    double FixedRadiusPx = 0.0;        // 有效半径（像素）；0 表示自动标定
+    int    RoundnessHarmonics = 2;     // 最高谐波阶数（0..3），从 2 阶开始
+    int    EnableSubpixel = 1;
+    double SubpixelSearchPx = 1.5;
+    double SubpixelStepPx = 0.25;
+    double RadiusTolRatio = 0.05;
+    const double* CameraMatrix = nullptr; // 3x3 行优先内参；Begin 时复制
+    const double* DistCoeffs = nullptr;   // 畸变系数；Begin 时复制
+    int    DistCoeffsCount = 0;
+    ContourFrameWeightMode FrameWeightMode = ContourFrameWeightMode::Voronoi;
+    double FrameWeightWindowDeg = 0.0; // density 窗口（度）；<=0 自动取 360/n
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -280,7 +299,8 @@ ALGO_API AlgoResult AddContourCalculationImage(const unsigned char* imageData, d
 /// <summary>结束计算，获取圆心偏移和旋转角</summary>
 ALGO_API AlgoResult EndContourCalculation(double* transX, double* transY, double* angle);
 
-/// <summary>Coordinate conversion from stage to wafer. All the four values are in um. This function is only used by dll internally and does not has the ALGO_API prefix</summary>
+/// <summary>Translate stage-centered coordinates to notch-frame wafer-centered coordinates. All values are in um, with parallel Y-up axes and no rotation.</summary>
+/// <remarks>Identity until contour calibration succeeds; BeginContourCalculation and Initialize clear the translation. Internal helper, not exported.</remarks>
 void ConvertCoordinates(double X_stage,double Y_stage,double* X_wafer,double* Y_wafer);
 
 // === 预扫描（PreScan）流水线（每通道 Begin → 每 Swath Begin/Add/End → End） ===
