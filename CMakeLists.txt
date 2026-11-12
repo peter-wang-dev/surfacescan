@@ -13,7 +13,7 @@ project(waferinsp VERSION 1.0 LANGUAGES CXX)
 if(MSVC)    
     add_compile_options(/W4 /std:c++latest /external:anglebrackets /external:W0)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")    
-    add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unknown-pragmas -Wno-experimental -Wno-missing-field-initializers -O3) 
+    add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unknown-pragmas -Wno-missing-field-initializers -O3) 
 endif()
 find_package(OpenCV CONFIG REQUIRED) # 
 find_package(GTest CONFIG REQUIRED)

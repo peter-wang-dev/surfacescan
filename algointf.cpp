@@ -105,8 +105,6 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		};
 
 	// Find the largest component (excluding background label 0)
-	int maxLabel=1;
-	int maxArea=stats.at<int>(1,cv::CC_STAT_AREA);
 	std::ofstream ofs_detreg(directory+std::format("/channel{}_detected_regions.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
 	ofs_detreg<<"ID\tArea(pixels)\tlg(intg)\tX\tY\tWidth\tHeight\tAspectRatio\tD2"<<std::endl;// the value D2 measures how far the region is from a perfect disk. D2:=4*pi*Area/(Perimeter^2), D2=1 for a perfect disk, D2<1 for other shapes
 	std::ofstream ofs_defectlog(directory+std::format("/channel{}_defectlog.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
@@ -141,8 +139,13 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		cv::Mat binaryPixelsInComponent;
 		cv::bitwise_and(binary(bbox),componentMask,binaryPixelsInComponent); 
 		const int binaryPixelCount=cv::countNonZero(binaryPixelsInComponent);
-		if(binaryPixelCount==0)
-			continue;
+		double cx=centroids.at<double>(lbl,0);
+		double cy=centroids.at<double>(lbl,1);
+		float x_um=static_cast<float>((cx-image.cols/2)*pixelsize),
+			y_um=static_cast<float>((cy-image.rows/2)*pixelsize),
+			r_um=static_cast<float>(std::sqrt(x_um*x_um+y_um*y_um)),
+			t_deg=static_cast<float>(std::atan2(y_um,x_um)*180.0f/3.14159265f);
+		if(t_deg<0) t_deg+=360.0f;
 
 		//if(intg<0.1f)//should not happen, but just in case
 		//{
@@ -156,26 +159,64 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		//				std::println(
 		//					"inspect channel={}, label={}: integrated intensity {} below 0.1; pixel ({}, {}) intensity {}",
 		//					static_cast<int>(channel), lbl, intg, j, i, image.at<float>(i,j));
-		//}
+		//} 
 
-		double cx=centroids.at<double>(lbl,0);
-		double cy=centroids.at<double>(lbl,1);
-		//cv::Point2d centroid(cx,cy);
+		//screen the regions based on the ROE and other criteria
+		if(binaryPixelCount==0)
+			continue;
+		if(area_px<=0) continue; // skip invalid entries 
+		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore the U-region
+		if(flag_glass&&(!(center_x>12000&&center_x<28000&&center_y>22000)))//only consider the U-region for glass wafers
+			continue;
+		bool in_ROE=false;
+		for(auto& rect:roe.Rectangles)
+			if(x_um>=rect.Xmin*1000&&x_um<=rect.Xmax*1000&&y_um>=rect.Ymin*1000&&y_um<=rect.Ymax*1000)
+			{
+				in_ROE=true;
+				break;
+			}
+		for(auto& ring:roe.Rings)
+			if(r_um>=ring.Rmin*1000&&r_um<=ring.Rmax*1000&&t_deg>=ring.Tmin&&t_deg<=ring.Tmax)
+			{
+				in_ROE=true;
+				break;
+			}
+		if(in_ROE) //skip current defect if within ROE 
+			continue;
 
+		//D2 value measures how circular the defect is. D2 = 4πA/P², where A is the area and P is the perimeter of the defect.  
+		auto  aspectRatio=static_cast<double>(width)/static_cast<double>(height);
+				std::vector<std::vector<cv::Point>> contours;
+		cv::findContours(componentMask,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE); 
+		double perimeter_px=0.0;
+		for(const auto& contour:contours)
+			perimeter_px+=cv::arcLength(contour,true); 
+		const double D2=perimeter_px>0.0
+			? 4.0*CV_PI*static_cast<double>(area_px)/(perimeter_px*perimeter_px)
+			: std::numeric_limits<double>::quiet_NaN();
+		//if(D2<0.8||D2>1.0) continue;
+		//region passed all screening preliminary tests, now analyze the region and record its properties
+		analyzed_regions++;
+		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",lbl,area_px,intg,left,top,width,height,aspectRatio,D2);
+		//if(intg<intensity_threshold)
+		//if(intg<std::log10(intensity_threshold))
+		//	continue; // skip defects less than threshold the intensity range
+		if(intg<Intensities[1]) continue; // skip item less than threshold the intensity range 
+		//if(defect.CoordX>0||defect.CoordY>0) continue; // skip defects 
+			//std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
+
+		//All tests passed, record the defect
 		DefectInfoStruct defect;
 		defect.DefectID=static_cast<int>(1);
 		defect.ChannelID=channel;
 		defect.Type=DefectType::LPD;
-		defect.CoordX=static_cast<float>((cx-image.cols/2)*pixelsize);
-		defect.CoordY=static_cast<float>((cy-image.rows/2)*pixelsize);
-		defect.CoordR=static_cast<float>(std::sqrt(defect.CoordX*defect.CoordX+defect.CoordY*defect.CoordY));
-		defect.CoordT=static_cast<float>(std::atan2(defect.CoordY,defect.CoordX)*180.0f/3.14159265f); // in degrees
-		if(defect.CoordT<0) defect.CoordT+=360.0f;
+		defect.CoordX=x_um;
+		defect.CoordY=y_um;
+		defect.CoordR=r_um;
+		defect.CoordT=t_deg; // in degrees
 		defect.XSize=static_cast<float>(width)*pixelsize;
 		defect.YSize=static_cast<float>(height)*pixelsize;
 		defect.Area=pixelsize*pixelsize*area_px;
-		//if(area>10)
-		//	defect.DSize=std::max(width,height)*pixelsize;
 		defect.DSize=static_cast<float>(f_size(intg));
 		defect.MaxDSize=static_cast<float>(f_size(intg));
 		defect.SNR=1;//todo
@@ -187,57 +228,8 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		defect.OutlinePointsOffset=0;
 		defect.OutlinePointsCount=0;
 		defect.BinCode=0;
-
-		if(area_px>maxArea)
-		{
-			maxArea=area_px;
-			maxLabel=lbl;
-		}
-		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore the U-region
-		if(flag_glass&&(!(center_x>12000&&center_x<28000&&center_y>22000)))//only consider the U-region for glass wafers
-			continue;
-		bool in_ROE=false;
-		for(auto& rect:roe.Rectangles)
-		{
-			if(defect.CoordX>=rect.Xmin*1000&&defect.CoordX<=rect.Xmax*1000&&defect.CoordY>=rect.Ymin*1000&&defect.CoordY<=rect.Ymax*1000)
-			{
-				in_ROE=true;
-				break;
-			}
-		}
-		for(auto& ring:roe.Rings)
-		{
-			if(defect.CoordR>=ring.Rmin*1000&&defect.CoordR<=ring.Rmax*1000&&defect.CoordT>=ring.Tmin&&defect.CoordT<=ring.Tmax)
-			{
-				in_ROE=true;
-				break;
-			}
-		}
-		if(in_ROE) //skip current defect if within ROE 
-			continue;
-		analyzed_regions++;
-		auto  aspectRatio=static_cast<double>(width)/static_cast<double>(height);
-				std::vector<std::vector<cv::Point>> contours;
-		cv::findContours(componentMask,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE);
-
-		double perimeter_px=0.0;
-		for(const auto& contour:contours)
-			perimeter_px+=cv::arcLength(contour,true);
-
-		const double D2=perimeter_px>0.0
-			? 4.0*CV_PI*static_cast<double>(area_px)/(perimeter_px*perimeter_px)
-			: std::numeric_limits<double>::quiet_NaN();
 		defect.D2=static_cast<float>(D2);
-		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",lbl,area_px,intg,left,top,width,height,aspectRatio,D2);
-		//if(intg<intensity_threshold)
-		//if(intg<std::log10(intensity_threshold))
-		//	continue; // skip defects less than threshold the intensity range
-		if(intg<Intensities[1])
-			continue; // skip defects less than threshold the intensity range 
-		//if(defect.CoordX>0||defect.CoordY>0) continue; // skip defects 
-			//std::println("Skipping region at ({},{}) with integrated intensity {} below threshold {}",defect.CoordX,defect.CoordY,intg,Intensities[1]);
-		//finally, add the defect to the list
-		defects.push_back(defect);
+		defects.push_back(defect); 
 		ofs_defectlog<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area_px,intg,defect.CoordX,defect.CoordY);
 	}
 	write_log(LogType::Info,"inspect",std::format("SNR threshold: {}.  Analyzed {} regions.",thr_snr,analyzed_regions).c_str()	);
@@ -263,7 +255,6 @@ cv::Mat drawmap(const cv::Mat &image,const std::vector<DefectInfoStruct> &defect
 	{
 		if(vflip)
 			defect.CoordY=-defect.CoordY;
-		if(defect.Area<=0) continue; // skip invalid entries
 		cv::Point center(static_cast<int>(defect.CoordX/pixelsize+image.cols/2),static_cast<int>(defect.CoordY/pixelsize+image.rows/2));
 		cv::Size axes(static_cast<int>(defect.XSize/2/pixelsize)+20,static_cast<int>(defect.YSize/2/pixelsize)+20);
 		cv::ellipse(defect_annotation,center,axes,0,0,360,cv::Scalar(0,0,65530),2); // red ellipse
@@ -283,7 +274,7 @@ cv::Mat drawmap(const cv::Mat &image,const std::vector<DefectInfoStruct> &defect
 		std::string text=std::format("I={}",defect.Intensity);
 
 		int fontFace = cv::FONT_HERSHEY_SIMPLEX;
-		double fontScale = 4;
+		double fontScale = 1;
 		int thickness = 1;
 
 		// draw text with a thin black outline for readability, then white text
@@ -514,7 +505,6 @@ extern "C"
 		float pixelsize=0.0f;
 		int N=static_cast<int>(rings_copy.size());
 		float thr_snr=2.5f;//default value, will be overwritten by settings
-		//float Rmin=-1000.0f,Rmax=1000.0f,Tmin=-720.0f,Tmax=720.0f;
 		Regions roe;//regions of exclusion, will be filled by settings
 		try
 		{
@@ -548,10 +538,6 @@ extern "C"
 						write_log(LogType::Info,"EndChannelProcess",std::format("channelID={}, added ROE Rectangle: Xmin={}, Xmax={}, Ymin={}, Ymax={}",static_cast<int>(channelID),r.Xmin,r.Xmax,r.Ymin,r.Ymax).c_str());
 					}
 			}
-			//Rmin=chsettings[channelID]["channelSettings"]["ROI"]["Rmin"];
-			//Rmax=chsettings[channelID]["channelSettings"]["ROI"]["Rmax"];
-			//Tmin=chsettings[channelID]["channelSettings"]["ROI"]["Tmin"];
-			//Tmax=chsettings[channelID]["channelSettings"]["ROI"]["Tmax"];
 		}
 		catch(const std::exception& e)
 		{
@@ -760,12 +746,12 @@ extern "C"
 				cv::Mat defect_annotation=drawmap(fullimage,defects,pixelsize,true);
 				fullimage.release();
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
-				//cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation,outputparams);
+				cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation);
 				imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
 				//saveBigTiff(dirout+std::format("/ch{}_annotated.tiff",static_cast<int>(channelID)),defect_annotation);
 				//defect_annotation*=16;
 				//saveBigTiff(dirout+std::format("/ch{}_annotated_4ev.tiff",static_cast<int>(channelID)),defect_annotation);
-				imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
+				//imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");

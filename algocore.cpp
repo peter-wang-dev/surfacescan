@@ -24,14 +24,14 @@ std::vector<double> estimate_column_intensity(cv::Mat image)
 std::vector<double> estimate_column_intensity_stat(const cv::Mat &image, float minvalid,float maxvalid)
 	//float minvalid=-std::numeric_limits<float>::infinity(), float maxvalid=std::numeric_limits<float>::infinity())
 {
-    if (image.empty())
-        throw std::invalid_argument("Input image is empty");
+	if(image.empty())
+		throw std::invalid_argument("Input image is empty");
 	if(image.type()!=CV_8UC1&&image.type()!=CV_16UC1&&image.type()!=CV_32FC1)
 		throw std::invalid_argument("Input image must be single-channel 8-bit, 16-bit, or 32-bit float");
-    if (image.dims != 2 || image.rows <= 0 || image.cols <= 0)
-        throw std::invalid_argument("Input image must be a non-empty 2D image");
+	if(image.dims!=2||image.rows<=0||image.cols<=0)
+		throw std::invalid_argument("Input image must be a non-empty 2D image");
 
-    std::vector<double> result(image.cols, 0.0);
+	std::vector<double> result(image.cols,0.0);
 	cv::Mat imgf; image.convertTo(imgf,CV_32F); 
 
     int W = image.cols;
