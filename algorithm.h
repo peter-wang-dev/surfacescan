@@ -410,8 +410,8 @@ ALGO_API AlgoResult EndPreScanProcess(int channelID, DefectInfoListStruct* descr
 ///     "ImageSaveDirectory": string,
 ///     "DebugOutput": bool,             //bool: whether to save intermediate results for debugging
 ///     "Material": string             // string: Wafer material, "silicon" or "glass" or "tialsi"
-///     "ROE": {"Rectangles": [ {"Xmin": float, "Xmax": float, "Ymin": float, "Ymax": float}, ... ],  // optional: rectangular ROE regions
-///             "Rings": [{"Rmin": float,"Rmax":float,"Tmin":float,"Tmax":float},...]} // optional: ring ROE regions  
+///     "ROE": {"Rectangles": [ {"Xmin": float, "Xmax": float, "Ymin": float, "Ymax": float}, ... ],  // optional: rectangular ROE regions defined in um
+///             "Rings": [{"Rmin": float,"Rmax":float,"Tmin":float,"Tmax":float},...]} // optional: ring ROE regions defined in um 
 /// }
 /// cluster: {
 ///     "WaferRadius": float,            // 晶圆半径mm
@@ -421,9 +421,10 @@ ALGO_API AlgoResult EndPreScanProcess(int channelID, DefectInfoListStruct* descr
 /// classification: {
 ///     "PixelSize": float,              // 像素尺寸um
 ///     "SpaceResolution": float,        // 空间分辨率（um/pixel，影响缺陷尺寸计算）
+///     "MinDefectPixels": int,          // 最小缺陷像素点数, 默认为1
 ///     "MinDefectSize": float,          // 最小缺陷尺寸（um）
 ///     "MaxDefectSize": float,          // 最大缺陷尺寸（um）
-///     "AreaMinPixelCount": int,        // AREA类型粒子的最小像素数（低于此数的聚类不归为AREA）
+///     "AreaMinPixelCount": int,        // AREA类型粒子的最小像素点数（低于此数的聚类不归为AREA）
 ///     "SatToAreaPixelCount": int,      // 饱和像素转AREA的阈值（单聚类中饱和像素超过此数则归为AREA）
 ///     "AREADisplayPixelSize": float,   // AREA缺陷显示的像素尺寸mm
 ///     "NeighborPixelCount": int,       // 领域像素采样数量（用于计算单像素周边背景）

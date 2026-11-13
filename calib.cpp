@@ -20,8 +20,8 @@ namespace
 		std::vector<double> angles;
 		std::array<double,9> camera_matrix{};
 		std::vector<double> distortion;
-		cv::Point2d stage_center_px{};
-		cv::Point2d wafer_center_px{};
+		cv::Point2d stage_center_px{0,0};
+		cv::Point2d wafer_center_px{0,0};
 		bool has_camera=false;
 		bool ready=false;
 	} contourState;

@@ -18,6 +18,7 @@ int main(int argc,char* argv[])
 		("material","Wafer material: \"silicon\", \"glass\", \"tialsi\"",cxxopts::value<std::string>()->default_value("silicon"))
 		("thr_snr","Signal-to-noise ratio threshold",cxxopts::value<float>()->default_value(std::to_string(thr_snr_default)))
 		("thr_intg","Integration threshold",cxxopts::value<float>()->default_value(std::to_string(thr_intg_default)))
+		("minpx","Minimal number of pixels for a region to be considered as a defect",cxxopts::value<int>()->default_value(std::to_string(1)))
 		("h,help","Print usage");
 	auto arguments=options.parse(argc,argv); 
 	std::string material=arguments["material"].as<std::string>();
@@ -117,7 +118,8 @@ int main(int argc,char* argv[])
 			//R"({{"CurvePoints": [{{"Intensity": 0.0, "DSize": 0.0}}, {{"Intensity": 140, "DSize": 0.1}},{{"Intensity": {}, "DSize": 0.2}}, {{"Intensity": 420000, "DSize": 0.5}},{{"Intensity": 1000000.0, "DSize": 10.0}}]}})",
 			thr_intg);
 		float thr_snr=arguments["thr_snr"].as<float>();
-		std::string classifySettingStr=std::format(R"({{"PixelSize": {},"SNRThreshold":{}}})",pixelsize,thr_snr);
+		float minpx=arguments["minpx"].as<int>();
+		std::string classifySettingStr=std::format(R"({{"PixelSize": {},"MinDefectPixels":{},"SNRThreshold":{}}})",pixelsize,minpx,thr_snr);
 		auto res_beginchannel=BeginChannelProcess(channel,channelSettings.c_str(),
 			"cluster_setting.json",classifySettingStr.c_str(),
 			"coord_cali_setting.json",DSizeCurveStr.c_str());

@@ -50,7 +50,7 @@ void imgprobe(cv::Mat img, bool continue_flag=false)
 
 std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<double>& Intensities,const std::vector<double>& DSizes,
 	const float pixelsize,const Regions roe,
-	const float thr_snr,DetectChannel channel,std::string directory="")
+	const int minDefectPixels,const float thr_snr,DetectChannel channel,std::string directory="")
 {
 	//CV_Assert(image.type() == CV_16UC1);
 	CV_Assert(image.type() == CV_32F);
@@ -166,17 +166,17 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			continue;
 		if(area_px<=0) continue; // skip invalid entries 
 		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore the U-region
-		if(flag_glass&&(!(center_x>12000&&center_x<28000&&center_y>22000)))//only consider the U-region for glass wafers
+		if(flag_glass&&(!(center_x>12500&&center_x<28500&&center_y>22000)))//only consider the U-region for glass wafers
 			continue;
 		bool in_ROE=false;
 		for(auto& rect:roe.Rectangles)
-			if(x_um>=rect.Xmin*1000&&x_um<=rect.Xmax*1000&&y_um>=rect.Ymin*1000&&y_um<=rect.Ymax*1000)
+			if(x_um>=rect.Xmin&&x_um<=rect.Xmax&&y_um>=rect.Ymin&&y_um<=rect.Ymax)
 			{
 				in_ROE=true;
 				break;
 			}
 		for(auto& ring:roe.Rings)
-			if(r_um>=ring.Rmin*1000&&r_um<=ring.Rmax*1000&&t_deg>=ring.Tmin&&t_deg<=ring.Tmax)
+			if(r_um>=ring.Rmin&&r_um<=ring.Rmax&&t_deg>=ring.Tmin&&t_deg<=ring.Tmax)
 			{
 				in_ROE=true;
 				break;
@@ -186,15 +186,53 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 
 		//D2 value measures how circular the defect is. D2 = 4πA/P², where A is the area and P is the perimeter of the defect.  
 		auto  aspectRatio=static_cast<double>(width)/static_cast<double>(height);
-				std::vector<std::vector<cv::Point>> contours;
-		cv::findContours(componentMask,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE); 
+		std::vector<std::vector<cv::Point>> contours;
+		std::vector<cv::Vec4i> hierarchy;
+		cv::findContours(componentMask,contours,hierarchy,
+			cv::RETR_CCOMP,cv::CHAIN_APPROX_NONE);
+
+		double area_d2=0.0;
 		double perimeter_px=0.0;
-		for(const auto& contour:contours)
-			perimeter_px+=cv::arcLength(contour,true); 
+		for(std::size_t i=0;i<contours.size();++i)
+		{
+			const double area=cv::contourArea(contours[i]);
+			area_d2+=(hierarchy[i][3]<0 ? area : -area);
+			perimeter_px+=cv::arcLength(contours[i],true);
+		}
+
+		// Point/line contours have no enclosed area.
+		// Treat their foreground pixels as unit squares instead.
+		if(area_d2<=0.0||perimeter_px<=0.0)
+		{
+			area_d2=static_cast<double>(area_px);
+			perimeter_px=0.0;
+
+			for(int y=0;y<componentMask.rows;++y)
+			{
+				const auto* row=componentMask.ptr<uchar>(y);
+				const auto* above=y>0 ? componentMask.ptr<uchar>(y-1) : nullptr;
+				const auto* below=y+1<componentMask.rows
+					? componentMask.ptr<uchar>(y+1) : nullptr;
+
+				for(int x=0;x<componentMask.cols;++x)
+				{
+					if(row[x]==0) continue;
+
+					if(x==0||row[x-1]==0) ++perimeter_px;
+					if(x+1==componentMask.cols||row[x+1]==0) ++perimeter_px;
+					if(!above||above[x]==0) ++perimeter_px;
+					if(!below||below[x]==0) ++perimeter_px;
+				}
+			}
+		}
+
 		const double D2=perimeter_px>0.0
-			? 4.0*CV_PI*static_cast<double>(area_px)/(perimeter_px*perimeter_px)
+			? 4.0*CV_PI*area_d2/(perimeter_px*perimeter_px)
 			: std::numeric_limits<double>::quiet_NaN();
-		//if(D2<0.8||D2>1.0) continue;
+		//if(D2<0.3||D2>1.2) continue;
+		//if(!(D2<0.3||D2>1.2)) continue;
+		//if(!(D2>1.2)) continue;
+		if(area_px<minDefectPixels) continue; //skip single pixel defects
 		//region passed all screening preliminary tests, now analyze the region and record its properties
 		analyzed_regions++;
 		ofs_detreg<<std::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",lbl,area_px,intg,left,top,width,height,aspectRatio,D2);
@@ -210,8 +248,11 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		defect.DefectID=static_cast<int>(1);
 		defect.ChannelID=channel;
 		defect.Type=DefectType::LPD;
-		defect.CoordX=x_um;
-		defect.CoordY=y_um;
+		double x_um_wafer=0,y_um_wafer=0;
+		ConvertCoordinates(x_um,y_um,&x_um_wafer,&y_um_wafer);
+		//defect.CoordX=x_um; defect.CoordY=y_um;
+		defect.CoordX=static_cast<float>(x_um_wafer);
+		defect.CoordY=static_cast<float>(y_um_wafer);
 		defect.CoordR=r_um;
 		defect.CoordT=t_deg; // in degrees
 		defect.XSize=static_cast<float>(width)*pixelsize;
@@ -503,6 +544,7 @@ extern "C"
 		const int W=2*std::accumulate(ringWidths.begin(),ringWidths.end(),0);
 		const int H=W;
 		float pixelsize=0.0f;
+		int minDefectPixels=1; //default value before reading from settings
 		int N=static_cast<int>(rings_copy.size());
 		float thr_snr=2.5f;//default value, will be overwritten by settings
 		Regions roe;//regions of exclusion, will be filled by settings
@@ -515,6 +557,8 @@ extern "C"
 			N=chsettings[channelID]["channelSettings"]["TotalRings"]; 
 			thr_snr=chsettings[channelID]["classification"]["SNRThreshold"];
 			pixelsize=chsettings[channelID]["classification"]["PixelSize"];
+			if(chsettings[channelID]["classification"].contains("MinDefectPixels"))
+				minDefectPixels=chsettings[channelID]["classification"]["MinDefectPixels"];
 			if(thr_snr>20.0f) thr_snr=20.0f; // clamp to a reasonable maximum
 			if(thr_snr<1.2f) thr_snr=1.2f; // clamp to a reasonable minimum
 			//fill the regions of exclusion from the settings
@@ -690,7 +734,7 @@ extern "C"
 
 		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,channelID);
 		//std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,thr_snr,channelID,dirout);
-		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,roe,thr_snr,channelID,dirout);
+		std::vector<DefectInfoStruct> defects=inspect(dehazed,Intensities,DSizes,pixelsize,roe,minDefectPixels,thr_snr,channelID,dirout);
 		write_log(LogType::Info,"EndChannelProcess",std::format("Identified {} defects in channel {}",defects.size(),static_cast<int>(channelID)).c_str());
 		//return AlgoResult::Success();
 
@@ -748,10 +792,10 @@ extern "C"
 				write_log(LogType::Info,"EndChannelProcess","saving defect annotation on full image");
 				cv::imwrite(dirout+std::format("/ch{}_annotated.png",static_cast<int>(channelID)),defect_annotation);
 				imwrite(dirout+std::format("/ch{}_annotated_4ev.png",static_cast<int>(channelID)),defect_annotation*16);
+				imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256);
 				//saveBigTiff(dirout+std::format("/ch{}_annotated.tiff",static_cast<int>(channelID)),defect_annotation);
 				//defect_annotation*=16;
 				//saveBigTiff(dirout+std::format("/ch{}_annotated_4ev.tiff",static_cast<int>(channelID)),defect_annotation);
-				//imwrite(dirout+std::format("/ch{}_annotated_8ev.png",static_cast<int>(channelID)),defect_annotation*256); 
 			}
 
 			write_log(LogType::Info,"EndChannelProcess","Finished saving images");

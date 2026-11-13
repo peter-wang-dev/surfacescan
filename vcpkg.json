@@ -6,10 +6,10 @@
   "nlohmann-json",
   "cxxopts",
   "tiff",
-    { "name": "opencv", "features": [ "openexr" ] }
+  "opencv"
   ],
 
-	"builtin-baseline": "7fb558b02523aaa5f1f297e12d695962ce15fc92",
+	"builtin-baseline": "d4bf063aa46ab095f6e04ae96ebf18c79980a8f5",
 	
     "$unsed_dependencies": [
 		"glfw3"
