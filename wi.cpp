@@ -177,10 +177,11 @@ int main(int argc,char* argv[])
 			throw std::runtime_error(std::format("EndChannelProcess failed: {}", res_endchannel.ErrorMessage));
 		//print the parsed options using std::println
 		auto timestamp_end=std::chrono::high_resolution_clock::now();
-		std::println("Parsed options:\n\tpathin={}\n\tpathout={}\n\tmaterial={}\n\tthr_snr={}\n\tthr_intg={}",
+		std::println("Parsed options:\n\tpathin={}\n\tpathout={}\n\tmaterial={}\n\tminpx={}\n\tthr_snr={}\n\tthr_intg={}",
 			arguments["pathin"].as<std::string>(),
 			arguments["pathout"].as<std::string>(),
 			arguments["material"].as<std::string>(),
+			arguments["minpx"].as<int>(),
 			arguments["thr_snr"].as<float>(),
 			arguments["thr_intg"].as<float>());
 		std::chrono::duration<double> duration_dataloaded=timestamp_dataloaded-timestamp_start;

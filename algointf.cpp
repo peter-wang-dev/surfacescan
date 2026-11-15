@@ -184,13 +184,13 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		if(in_ROE) //skip current defect if within ROE 
 			continue;
 
-		//D2 value measures how circular the defect is. D2 = 4πA/P², where A is the area and P is the perimeter of the defect.  
 		auto  aspectRatio=static_cast<double>(width)/static_cast<double>(height);
 		std::vector<std::vector<cv::Point>> contours;
 		std::vector<cv::Vec4i> hierarchy;
 		cv::findContours(componentMask,contours,hierarchy,
 			cv::RETR_CCOMP,cv::CHAIN_APPROX_NONE);
 
+		//D2 value measures how circular the defect is. D2 = 4πA/P², where A is the area and P is the perimeter of the defect.  
 		double area_d2=0.0;
 		double perimeter_px=0.0;
 		for(std::size_t i=0;i<contours.size();++i)
@@ -229,9 +229,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		const double D2=perimeter_px>0.0
 			? 4.0*CV_PI*area_d2/(perimeter_px*perimeter_px)
 			: std::numeric_limits<double>::quiet_NaN();
-		//if(D2<0.3||D2>1.2) continue;
-		//if(!(D2<0.3||D2>1.2)) continue;
-		//if(!(D2>1.2)) continue;
+		//if(D2<0.3) continue;
 		if(area_px<minDefectPixels) continue; //skip single pixel defects
 		//region passed all screening preliminary tests, now analyze the region and record its properties
 		analyzed_regions++;

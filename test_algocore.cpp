@@ -9,7 +9,7 @@
 #define SET_ENV(key, val) setenv(key, val, 1)
 #endif
 import std;
-std::string path_output="test_output"; 
+std::string path_output="d:/dev/test_output"; 
 //std::string path_output="C:/Users/cyber/test_output"; 
 std::string path_input="d:/dev/cns_testinput"; 
 std::string path_userinput;
@@ -264,6 +264,51 @@ TEST(core, merge)
     ASSERT_TRUE(cv::imwrite((std::filesystem::path(path_output)/"merge_4ev.png").string(),merged*16))<<"Failed to save merged image: ";
     //ASSERT_TRUE(cv::imwrite((std::filesystem::path(path_output)/"merge_8ev.png").string(),merged*256))<<"Failed to save merged image: ";
     //ASSERT_TRUE(cv::imwrite((std::filesystem::path(path_output)/"merge_10ev.png").string(),merged*1024))<<"Failed to save merged image: ";
+}
+TEST(core,composite)
+{
+    const std::filesystem::path input_dir=std::filesystem::path(path_userinput);
+    ASSERT_TRUE(std::filesystem::is_directory(input_dir))<<input_dir.string();
+
+    std::vector<std::filesystem::path> files;
+    for(const auto& entry:std::filesystem::directory_iterator(input_dir))
+    {
+        if(entry.is_regular_file())
+            files.push_back(entry.path());
+    }
+    std::sort(files.begin(),files.end());
+
+    std::vector<cv::Mat> images;
+    for(const auto& file:files)
+    {
+        auto image=cv::imread(file.string(),cv::IMREAD_UNCHANGED);
+        if(!image.empty()&&image.type()==CV_16UC1)
+            images.push_back(std::move(image));
+    }
+    ASSERT_EQ(images.size(),2u)
+        <<"Expected exactly two 16-bit single-channel images in "<<input_dir.string();
+
+    // A and B follow lexicographic filename order.
+    const cv::Mat& A=images[0];
+    const cv::Mat& B=images[1];
+    ASSERT_EQ(A.size(),B.size())<<"Input image dimensions must match.";
+
+    cv::Mat min_channel,max_channel,diff_channel;
+    cv::min(A,B,min_channel);
+    cv::max(A,B,max_channel);
+    cv::subtract(A,B,diff_channel); // Unsigned subtraction saturates at zero.
+
+    // OpenCV stores color channels in BGR order.
+    cv::Mat MIN,MAX,DIFF;
+    cv::merge(std::vector<cv::Mat>{min_channel,B,A},MIN);
+    cv::merge(std::vector<cv::Mat>{max_channel,B,A},MAX);
+    cv::merge(std::vector<cv::Mat>{diff_channel,B,A},DIFF);
+
+    const std::filesystem::path output_dir(path_output);
+    std::filesystem::create_directories(output_dir);
+    EXPECT_TRUE(cv::imwrite((output_dir/"MIN.png").string(),MIN*16));
+    EXPECT_TRUE(cv::imwrite((output_dir/"MAX.png").string(),MAX*16));
+    EXPECT_TRUE(cv::imwrite((output_dir/"DIFF.png").string(),DIFF*16));
 }
 int main(int argc, char **argv) 
 {
