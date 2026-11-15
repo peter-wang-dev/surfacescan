@@ -7,7 +7,70 @@ import std;
 const std::string pathout_default="test_output"; 
 const std::string pathin_default="C:/astri2/cnsvision/testinput"; 
 const float thr_snr_default=1.8f;//signal-to-noise ratio threshold for integration calculation
-const float thr_intg_default=1000.0f;//integration threshold for particle detection
+
+std::string readDSizeCurve(const std::string& path)
+{
+	std::ifstream file(path);
+	if(!file)
+		throw std::runtime_error(std::format("Could not open DSizecurve file: {}",path));
+	auto hasColumns=[](std::string_view text,std::string_view first,std::string_view second)
+	{
+		const auto separator=text.find_first_of(" \t");
+		const auto secondColumn=text.find_first_not_of(" \t",separator);
+		return separator!=std::string_view::npos&&secondColumn!=std::string_view::npos
+			&&text.substr(0,separator)==first&&text.substr(secondColumn)==second;
+	};
+	std::string line;
+	size_t lineNumber=0;
+	auto readDataLine=[&]()
+	{
+		while(std::getline(file,line))
+		{
+			++lineNumber;
+			const auto comment=std::min(line.find('#'),line.find("//"));
+			if(comment!=std::string::npos)
+				line.erase(comment);
+			const auto end=line.find_last_not_of(" \t\r");
+			if(end==std::string::npos)
+				continue;
+			line.erase(end+1);
+			return true;
+		}
+		return false;
+	};
+	if(!readDataLine()||!hasColumns(line,"Intensity","Size(um)"))
+		throw std::runtime_error(std::format("Invalid DSizecurve header in '{}': expected Intensity and Size(um) separated by spaces or tabs.",path));
+	if(!readDataLine()||!hasColumns(line,"0","0"))
+		throw std::runtime_error(std::format("Invalid DSizecurve origin in '{}': the first point must contain 0 and 0 separated by spaces or tabs.",path));
+	std::string curve=R"({"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0})";
+	double previousIntensity=0.0,previousSize=0.0;
+	bool hasPoint=false;
+	while(readDataLine())
+	{
+		std::istringstream row(line);
+		double intensity,size;
+		char separator;
+		if(!(row>>intensity)||!row.get(separator)||(separator!='\t'&&separator!=' ')
+			||!(row>>size)||!(row>>std::ws).eof()
+			||!std::isfinite(intensity)||!std::isfinite(size))
+			throw std::runtime_error(std::format("Invalid DSizecurve point in '{}' at line {}: expected two finite numbers separated by spaces or tabs.",path,lineNumber));
+		if(intensity<=previousIntensity)
+			throw std::runtime_error(std::format("Invalid DSizecurve point in '{}' at line {}: Intensity values must be strictly increasing.",path,lineNumber));
+		if(size<=previousSize)
+			throw std::runtime_error(std::format("Invalid DSizecurve point in '{}' at line {}: Size(um) values must be strictly increasing.",path,lineNumber));
+		previousIntensity=intensity;
+		previousSize=size;
+		curve+=std::format(R"(, {{"Intensity": {}, "DSize": {}}})",intensity,size);
+		hasPoint=true;
+	}
+	if(file.bad())
+		throw std::runtime_error(std::format("Could not read DSizecurve file: {}",path));
+	if(!hasPoint)
+		throw std::runtime_error(std::format("DSizecurve file '{}' must contain at least one point after the origin (0,0).",path));
+	curve+="]}";
+	return curve;
+}
+
 int main(int argc,char* argv[])
 {
 	// Parse command-line arguments
@@ -17,7 +80,8 @@ int main(int argc,char* argv[])
 		("o,pathout","Output directory",cxxopts::value<std::string>()->default_value(pathout_default))
 		("material","Wafer material: \"silicon\", \"glass\", \"tialsi\"",cxxopts::value<std::string>()->default_value("silicon"))
 		("thr_snr","Signal-to-noise ratio threshold",cxxopts::value<float>()->default_value(std::to_string(thr_snr_default)))
-		("thr_intg","Integration threshold",cxxopts::value<float>()->default_value(std::to_string(thr_intg_default)))
+		("thr_intg","Integration threshold (mutually exclusive with --dsc)",cxxopts::value<std::string>())
+		("dsc","Path to a space- or tab-separated DSizecurve file (# and // comments; mutually exclusive with --thr_intg)",cxxopts::value<std::string>())
 		("minpx","Minimal number of pixels for a region to be considered as a defect",cxxopts::value<int>()->default_value(std::to_string(1)))
 		("h,help","Print usage");
 	auto arguments=options.parse(argc,argv); 
@@ -27,6 +91,16 @@ int main(int argc,char* argv[])
 		std::cerr<<"Invalid wafer material: "<<material<<". Must be \"silicon\" or \"glass\" or \"tialsi\"."<<std::endl;
 		return 1;
 	} 
+	if(arguments.count("dsc")&&arguments.count("thr_intg"))
+	{
+		std::cerr<<"Options --dsc and --thr_intg cannot be used together. Provide exactly one."<<std::endl;
+		return 1;
+	}
+	if(!arguments.count("help")&&!arguments.count("dsc")&&!arguments.count("thr_intg"))
+	{
+		std::cerr<<"Either --dsc <path> or --thr_intg <value> must be provided."<<std::endl;
+		return 1;
+	}
 	if(arguments.count("help")||!arguments.count("pathin")||!arguments.count("pathout")) {
 		std::cout<<options.help()<<std::endl;
 		return 0;
@@ -35,6 +109,20 @@ int main(int argc,char* argv[])
 	try // wafer inspection
 	{
 		auto timestamp_start=std::chrono::high_resolution_clock::now();
+		std::string DSizeCurveStr;
+		if(arguments.count("dsc"))
+			DSizeCurveStr=readDSizeCurve(arguments["dsc"].as<std::string>());
+		else
+		{
+			const auto& value=arguments["thr_intg"].as<std::string>();
+			std::istringstream input(value);
+			float thr_intg;
+			if(!(input>>thr_intg)||!(input>>std::ws).eof()||!std::isfinite(thr_intg))
+				throw std::runtime_error(std::format("Invalid --thr_intg value: {}",value));
+			DSizeCurveStr=std::format(
+				R"({{"CurvePoints": [{{"Intensity": 0.0, "DSize": 0.0}}, {{"Intensity": {}, "DSize": 0.5}}, {{"Intensity": 1000000.0, "DSize": 10.0}}]}})",
+				thr_intg);
+		}
 		Initialize();
 		auto channel=DetectChannel::Narrow;
 		namespace fs=std::filesystem;
@@ -111,12 +199,6 @@ int main(int argc,char* argv[])
 			std::filesystem::create_directories(pathout);
 		std::string channelSettings=std::format(R"({{"FrameWidth":{}, "FrameHeight":{}, "TotalRings":{},"ROE":{{"Rings":[{{"Rmin":0,"Rmax":0,"Tmin":0.0,"Tmax":360.0}}]}},  "ImageSaveDirectory":"{}", "DebugOutput":true, "Material":"{}"}})",
 			FrameWidth,FrameHeight,TotalRings,pathout,material);
-		//std::string DSizeCurveStr=std::format(R"({{"CurvePoints": [{"Intensity": 0.0, "DSize": 0.0}, {"Intensity": {}, "DSize": 200.0}, {"Intensity": 255.0, "DSize": 1000.0}]}})", detection_threshold); 
-		float thr_intg=arguments["thr_intg"].as<float>();
-		std::string DSizeCurveStr=std::format(
-			R"({{"CurvePoints": [{{"Intensity": 0.0, "DSize": 0.0}}, {{"Intensity": {}, "DSize": 0.5}}, {{"Intensity": 1000000.0, "DSize": 10.0}}]}})",
-			//R"({{"CurvePoints": [{{"Intensity": 0.0, "DSize": 0.0}}, {{"Intensity": 140, "DSize": 0.1}},{{"Intensity": {}, "DSize": 0.2}}, {{"Intensity": 420000, "DSize": 0.5}},{{"Intensity": 1000000.0, "DSize": 10.0}}]}})",
-			thr_intg);
 		float thr_snr=arguments["thr_snr"].as<float>();
 		float minpx=arguments["minpx"].as<int>();
 		std::string classifySettingStr=std::format(R"({{"PixelSize": {},"MinDefectPixels":{},"SNRThreshold":{}}})",pixelsize,minpx,thr_snr);
@@ -177,13 +259,16 @@ int main(int argc,char* argv[])
 			throw std::runtime_error(std::format("EndChannelProcess failed: {}", res_endchannel.ErrorMessage));
 		//print the parsed options using std::println
 		auto timestamp_end=std::chrono::high_resolution_clock::now();
-		std::println("Parsed options:\n\tpathin={}\n\tpathout={}\n\tmaterial={}\n\tminpx={}\n\tthr_snr={}\n\tthr_intg={}",
+		std::println("Parsed options:\n\tpathin={}\n\tpathout={}\n\tmaterial={}\n\tminpx={}\n\tthr_snr={}",
 			arguments["pathin"].as<std::string>(),
 			arguments["pathout"].as<std::string>(),
 			arguments["material"].as<std::string>(),
 			arguments["minpx"].as<int>(),
-			arguments["thr_snr"].as<float>(),
-			arguments["thr_intg"].as<float>());
+			arguments["thr_snr"].as<float>());
+		if(arguments.count("dsc"))
+			std::println("\tdsc={}",arguments["dsc"].as<std::string>());
+		else
+			std::println("\tthr_intg={}",arguments["thr_intg"].as<std::string>());
 		std::chrono::duration<double> duration_dataloaded=timestamp_dataloaded-timestamp_start;
 		std::println("Data loading time: {}s",duration_dataloaded.count());
 		std::chrono::duration<double> duration_total=timestamp_end-timestamp_dataloaded;
@@ -193,6 +278,7 @@ int main(int argc,char* argv[])
 	catch(const std::exception& e) 
 	{
 		std::cerr<<"Error: "<<e.what()<<std::endl;
+		return 1;
 	}
 
 	return 0;

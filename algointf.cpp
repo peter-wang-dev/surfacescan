@@ -108,7 +108,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 	std::ofstream ofs_detreg(directory+std::format("/channel{}_detected_regions.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
 	ofs_detreg<<"ID\tArea(pixels)\tlg(intg)\tX\tY\tWidth\tHeight\tAspectRatio\tD2"<<std::endl;// the value D2 measures how far the region is from a perfect disk. D2:=4*pi*Area/(Perimeter^2), D2=1 for a perfect disk, D2<1 for other shapes
 	std::ofstream ofs_defectlog(directory+std::format("/channel{}_defectlog.txt",static_cast<int>(channel)));//save a file for statistics of detected regions of column id,area,intg 
-	ofs_defectlog<<"ID\tArea(pixels)\tlg(intg)\tX\tY"<<std::endl;
+	ofs_defectlog<<"ID\tArea(pixels)\tlg(intg)\tX\tY\tDsize"<<std::endl;
 
 	int analyzed_regions=0;
 	for(int lbl=1; lbl<nLabels; ++lbl)
@@ -269,7 +269,7 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 		defect.BinCode=0;
 		defect.D2=static_cast<float>(D2);
 		defects.push_back(defect); 
-		ofs_defectlog<<std::format("{}\t{}\t{}\t{}\t{}\n",lbl,area_px,intg,defect.CoordX,defect.CoordY);
+		ofs_defectlog<<std::format("{}\t{}\t{}\t{}\t{}\t{}\n",lbl,area_px,intg,defect.CoordX,defect.CoordY,defect.DSize);
 	}
 	write_log(LogType::Info,"inspect",std::format("SNR threshold: {}.  Analyzed {} regions.",thr_snr,analyzed_regions).c_str()	);
 	std::sort(defects.begin(),defects.end(),[](const DefectInfoStruct& a,const DefectInfoStruct& b) { return a.Area>b.Area; }); // descending order
