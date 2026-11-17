@@ -166,7 +166,8 @@ std::vector<DefectInfoStruct> inspect(const cv::Mat& image,const std::vector<dou
 			continue;
 		if(area_px<=0) continue; // skip invalid entries 
 		//if(flag_glass&&(center_x>10000&&center_x<31000&&center_y>22000))//ignore the U-region
-		if(flag_glass&&(!(center_x>12500&&center_x<28500&&center_y>22000)))//only consider the U-region for glass wafers
+		//if(flag_glass&&(!(center_x>12500&&center_x<28500&&center_y>22000)))//only consider the U-region for glass wafers
+		if(flag_glass&&(!(center_y>12500&&center_y<28500&&center_x<22000)))//only consider the U-region for glass wafers
 			continue;
 		bool in_ROE=false;
 		for(auto& rect:roe.Rectangles)
@@ -655,6 +656,7 @@ extern "C"
 				if(r>ringStart[0])
 					continue; // outside the outermost ring
 				float theta=std::atan2(y,x);
+				theta=CV_PI/2.0f-theta; // convert to polar coordinates with theta=0 at the bottom and increasing clockwise
 				//float r_mm=r*pixelSize;
 				int idxr=0;
 				for(;idxr<N;idxr++)
@@ -673,17 +675,19 @@ extern "C"
 				int cols=rings_copy[idxr].img.cols;
 
 				int row=static_cast<int>(((theta-theta0)/(theta1-theta0))*(rows-1));
+				//row=-row; // flip the row index to match the orientation of the ring image 
+				while(row<0) row+=rows;
+				while(row>=rows) row-=rows; 
+				//row=std::clamp(row,0,rows-1);
 				float r_in_ring=ringStart[idxr]-r;
 				int col=static_cast<int>((r_in_ring/ringWidths[idxr])*(cols-1));
- 
-				if(col>=cols||row<0||col<0)
-				{
-					write_log(LogType::Warn,"EndChannelProcess",std::format("Out of bounds: ringIndex={}, row={}, col={}, rows={}, cols={}",idxr,row,col,rows,cols).c_str());
-					continue; // out of bounds, skip
-				}
-				row=std::clamp(row,0,rows-1);
 				col=std::clamp(col,0,cols-1);
-				col=cols-1-col;// flip the column index to match the orientation of the ring image
+				col=cols-1-col;// flip the column index to match the orientation of the ring image 
+				//if(col>=cols||row<0||col<0)
+				//{
+				//	write_log(LogType::Warn,"EndChannelProcess",std::format("Out of bounds: ringIndex={}, row={}, col={}, rows={}, cols={}",idxr,row,col,rows,cols).c_str());
+				//	continue; // out of bounds, skip
+				//}
 
 				//fullimage.at<uchar>(i,j)=rings_copy[idxr].defectmap.at<uchar>(row,col);
 				//defectmap.at<float>(i,j)=rings_copy[idxr].defectmap.at<float>(row,col);

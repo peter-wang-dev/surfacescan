@@ -49,13 +49,13 @@ std::vector<double> estimate_column_intensity_stat(const cv::Mat &image, float m
     {
         //#pragma omp for schedule(dynamic)
 		//#pragma omp for
-		std::mt19937 rng(base_seed); 
+		// 1. Sample N=10000 values randomly for each column 
+		std::mt19937 rng(base_seed);
 		std::uniform_int_distribution<int> dist(0, H - 1);
         for (int x = 0; x < W; ++x) 
         { 
 			std::vector<float> samples; 
 			samples.reserve(N);
-            // 1. Sample N=10000 values randomly
 			int num_successful_samples=0, num_failed_samples=0;
 			while(samples.size()<N)
 			{
